@@ -12,26 +12,26 @@ Streamer::~Streamer() {
 
 
 bool Streamer::init(const Config& config) {
-    config_ = config;
-    decoder_ = std::make_unique<otl::StreamDecoder>(config.id);
-    decoder_->setObserver(this);
-    if (decoder_->openStream(config.input_url) != 0) {
-        std::cout << "OpenStream " << config.input_url << " failed!" << std::endl;
+    m_config = config;
+    m_decoder = std::make_unique<otl::StreamDecoder>(config.id);
+    m_decoder->setObserver(this);
+    if (m_decoder->openStream(config.inputUrl) != 0) {
+        std::cout << "OpenStream " << config.inputUrl << " failed!" << std::endl;
         return false;
     }
 
-    decoder_->setAvformatOpenedCallback([this, config](const AVFormatContext* ifmtCtx)
+    m_decoder->setAvformatOpenedCallback([this, config](const AVFormatContext* ifmtCtx)
     {
-        if (output_ == nullptr) {
-            output_ = std::make_unique<otl::FfmpegOutputer>();
-            output_->openOutputStream(config.output_url, ifmtCtx);
+        if (m_output == nullptr) {
+            m_output = std::make_unique<otl::FfmpegOutputer>();
+            m_output->openOutputStream(config.outputUrl, ifmtCtx);
         }
     });
 
-    decoder_->setAvformatClosedCallback([this]()
+    m_decoder->setAvformatClosedCallback([this]()
     {
-        if (output_ != nullptr) {
-            output_->closeOutputStream();
+        if (m_output != nullptr) {
+            m_output->closeOutputStream();
         }
     });
 
@@ -39,32 +39,32 @@ bool Streamer::init(const Config& config) {
 }
 
 bool Streamer::start(FrameCallback callback) {
-    if (running_) {
+    if (m_running) {
         return false;
     }
 
-    frame_callback_ = std::move(callback);
-    running_ = true;
+    m_frameCallback = std::move(callback);
+    m_running = true;
     return true;
 }
 
 void Streamer::stop() {
-    running_ = false;
-    decoder_->closeStream();
+    m_running = false;
+    m_decoder->closeStream();
 }
 
 Streamer::Stats Streamer::getStats() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    stats_.fps = m_fpsStat->getSpeed();
-    return stats_;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_stats.fps = m_fpsStat->getSpeed();
+    return m_stats;
 }
 
 void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
     m_fpsStat->update();
 
-    if (frame_callback_) frame_callback_(pkt, pFrame);
+    if (m_frameCallback) m_frameCallback(pkt, pFrame);
 
-    if (output_) {
-        output_->inputPacket(pkt);
+    if (m_output) {
+        m_output->inputPacket(pkt);
     }
 }

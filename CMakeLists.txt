@@ -13,6 +13,22 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
+    message(STATUS "检测到 macOS 系统")
+    # macOS 特定配置
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+    # 示例：链接 macOS 框架
+    # find_library(CORE_FOUNDATION CoreFoundation)
+    # target_link_libraries(your_target PRIVATE ${CORE_FOUNDATION)
+    include_directories(/opt/homebrew/include)
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+    message(STATUS "检测到 Linux 系统")
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+    message(STATUS "检测到 Windows 系统")
+else()
+    message(STATUS "未知系统：${CMAKE_SYSTEM_NAME}")
+endif()
+
 find_package(OpenCV REQUIRED)
 
 # Find FFmpeg using pkg-config

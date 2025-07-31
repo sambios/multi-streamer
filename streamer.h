@@ -17,9 +17,9 @@ class Streamer : public otl::StreamDecoderEvents {
 public:
     struct Config {
         int id;
-        std::string input_url;        // URL or file path of the video stream
-        int frame_drop_interval = 0;   // 0 = no frame drop
-        std::string output_url;
+        std::string inputUrl;        // URL or file path of the video stream
+        int frameDropInterval = 0;   // 0 = no frame drop
+        std::string outputUrl;
     };
 
     otl::StatToolPtr m_fpsStat;
@@ -39,18 +39,18 @@ public:
     bool init(const Config& config);
     bool start(FrameCallback callback);
     void stop();
-    bool isRunning() const { return running_; }
+    bool isRunning() const { return m_running; }
     Stats getStats();
 
 protected:
     void onDecodedAVFrame(const AVPacket *pkt, const AVFrame *pFrame) override;
 
 private:
-    Config config_;
-    std::unique_ptr<otl::StreamDecoder> decoder_;
-    std::unique_ptr<otl::FfmpegOutputer> output_;
-    std::atomic<bool> running_{false};
-    FrameCallback frame_callback_;
-    mutable std::mutex mutex_;
-    Stats stats_;
+    Config m_config;
+    std::unique_ptr<otl::StreamDecoder> m_decoder;
+    std::unique_ptr<otl::FfmpegOutputer> m_output;
+    std::atomic<bool> m_running{false};
+    FrameCallback m_frameCallback;
+    mutable std::mutex m_mutex;
+    Stats m_stats;
 };

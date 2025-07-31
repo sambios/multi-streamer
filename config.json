@@ -1,22 +1,22 @@
 {
   "configs": [
     {
-      "input_url": "/home/yuan/datasets/videos/test_car_person_1080P.264",
+      "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
       "output_url": "udp://127.0.0.1:9000"
     },
     {
-      "input_url": "/home/yuan/datasets/videos/test_car_person_1080P.264",
+      "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
       "output_url": "udp://0.0.0.0:9001"
     },
     {
-      "input_url": "/home/yuan/datasets/videos/test_car_person_1080P.264",
+      "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
       "output_url": "udp://0.0.0.0:9002"
     },
     {
-      "input_url": "/home/yuan/datasets/videos/test_car_person_1080P.264",
+      "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
       "output_url": "udp://0.0.0.0:9003"
     }
