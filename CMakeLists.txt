@@ -49,6 +49,13 @@ add_executable(${PROJECT_NAME}
     main.cpp
     streamer.cpp
     streamer.h
+        detector.cpp
+        detector.h
+        ../otl/otl_detector.cpp
+        ../otl/otl_detector.h
+        device_manager.cpp
+        device_manager.h
+        ../otl/otl_baseclass.h
 )
 
 # Include directories
