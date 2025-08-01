@@ -8,6 +8,8 @@ option(USE_DUMMY_DETECTOR "Use dummy detector" OFF)
 option(USE_HW_CODEC "use hardware accelerator" ON)
 option(USE_TOPS_FFMPEG "use Tops ffmpeg" ON)
 
+set(CMAKE_CXX_FLAGS -fsanitize=address ${CMAKE_CXX_FLAGS})
+
 # Find required packages
 find_package(OpenCV REQUIRED)
 

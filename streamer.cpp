@@ -14,7 +14,7 @@ Streamer::~Streamer() {
 
 bool Streamer::init(const Config& config) {
     m_config = config;
-    m_decoder = std::make_unique<otl::StreamDecoder>(config.channelId);
+    m_decoder = std::make_unique<otl::StreamDecoder>(config.decodeId);
     m_decoder->setObserver(this);
 
     m_detector = m_detectorManager->getDetector(config.devId);

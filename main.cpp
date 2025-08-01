@@ -47,22 +47,66 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::shared_ptr<Streamer>> streamers;
     // 从 JSON 对象中提取配置信息
-    int card_nums = 2;
+    int card_nums = 3;
     int channelId = 0;
 
-    for (int devId = 0; devId < card_nums; ++devId) {
+    for (int devId = 1; devId < card_nums; ++devId) {
 
         // 读取卡的运行配置
         std::vector<Streamer::Config> configs;
         std::string devNodeStr = otl::format("configs_dev%d", devId);
+        
         for (const auto& configObj : configsJson[devNodeStr]) {
-            Streamer::Config config;
-            config.devId = devId;
-            config.channelId = channelId++;
-            config.inputUrl = otl::replaceHomeDirectory(configObj["input_url"].get<std::string>());
-            config.outputUrl = otl::replaceHomeDirectory(configObj["output_url"].get<std::string>());
-            config.frameDropInterval = configObj["frame_drop_interval"].get<int>();
-            configs.push_back(config);
+            // 获取基础配置
+            std::string inputUrl = otl::replaceHomeDirectory(configObj["input_url"].get<std::string>());
+            int frameDropInterval = configObj["frame_drop_interval"].get<int>();
+            std::string outputUrlBase = otl::replaceHomeDirectory(configObj["output_url_base"].get<std::string>());
+            int repeatCount = configObj["client_count"].get<int>();
+            
+            // 解析基础输出URL以提取IP和端口
+            std::string baseIp;
+            int basePort;
+            std::string protocol;
+            
+            // 简单的URL解析 (假设格式为 udp://ip:port)
+            size_t protocolPos = outputUrlBase.find("://");
+            if (protocolPos != std::string::npos) {
+                protocol = outputUrlBase.substr(0, protocolPos + 3);
+                std::string remaining = outputUrlBase.substr(protocolPos + 3);
+                
+                size_t colonPos = remaining.find_last_of(':');
+                if (colonPos != std::string::npos) {
+                    baseIp = remaining.substr(0, colonPos);
+                    basePort = std::stoi(remaining.substr(colonPos + 1));
+                } else {
+                    // 如果没有端口，使用默认端口
+                    baseIp = remaining;
+                    basePort = 9000;
+                }
+            } else {
+                // 如果格式不正确，使用默认值
+                protocol = "udp://";
+                baseIp = "127.0.0.1";
+                basePort = 9000;
+            }
+            
+            // 根据重复次数创建多个配置
+            for (int i = 0; i < repeatCount; ++i) {
+                Streamer::Config config;
+                config.devId = devId;
+                config.channelId = channelId++;
+                config.inputUrl = inputUrl;
+                config.frameDropInterval = frameDropInterval;
+                config.decodeId = OTL_MAKE_INT32(devId, i % 2);
+                
+                // 生成递增的输出URL
+                config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);
+                
+                configs.push_back(config);
+                
+                std::cout << "Generated config - Channel " << config.channelId 
+                         << ": " << config.inputUrl << " -> " << config.outputUrl << std::endl;
+            }
         }
 
         //开始启动PIPE，一个卡一个PIPE实例

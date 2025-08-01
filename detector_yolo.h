@@ -11,6 +11,8 @@
 #include <opencv2/opencv.hpp>
 #include <memory>
 #include <vector>
+#include <numeric>
+#include <mutex>
 
 class YoloDetector : public Detector
 {
@@ -23,9 +25,12 @@ public:
     int postprocess(std::vector<FrameInfo> &frames) override;
 
 private:
-    // TopsInference components
+    // TopsInference components (following yolov5_ref.cpp pattern)
     TopsInference::IEngine* m_engine;
     TopsInference::handler_t m_handler;
+    std::vector<void*> m_netInputs[2];
+    std::vector<void*> m_netOutputs[2];
+    int m_currentBuffer;
 
     // Model parameters
     int m_deviceId;
@@ -35,15 +40,36 @@ private:
     float m_confThreshold;
     float m_nmsThreshold;
 
-    // Preprocessed data storage
-    std::vector<cv::Mat> m_preprocessedImages;
-    std::vector<float> m_inputData;
-    std::vector<float> m_outputData;
+    // Engine and model related members
+    std::string m_modelPath;
 
-    // Helper methods
+    // Shape information (following yolov5_ref.cpp pattern)
+    struct ShapeInfo {
+        std::string name;
+        std::vector<int> dims;
+        int dtype;
+        int dtype_size;
+        int volume;
+        int mem_size;
+        ShapeInfo() {}
+        ShapeInfo(const char *tensor_name, std::vector<int> &_dims, int dtype, int _dtype_size, int _mem_size)
+                : name(tensor_name), dims(_dims), dtype(dtype), dtype_size(_dtype_size), mem_size(_mem_size) {
+            volume = std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int>());
+        }
+    };
+    std::vector<ShapeInfo> m_inputShapes;
+    std::vector<ShapeInfo> m_outputShapes;
+
+    // 互斥锁用于多线程同步
+    std::mutex m_mutex;
+
+    // Helper methods (following yolov5_ref.cpp pattern)
     bool initializeEngine(const std::string& modelPath);
-    cv::Mat preprocessImage(const cv::Mat& image);
-    std::vector<cv::Rect> postprocessDetections(const float* output, int imageWidth, int imageHeight);
+    std::vector<ShapeInfo> getInputsShape();
+    std::vector<ShapeInfo> getOutputsShape();
+    std::vector<void*> allocHostMemory(std::vector<ShapeInfo> &shapes_info, int times, bool verbose);
+    void freeHostMemory(std::vector<void*> &datum);
+    int get_dtype_size(TopsInference::DataType dtype);
     void cleanup();
 };
 

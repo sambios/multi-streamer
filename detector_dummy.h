@@ -5,6 +5,7 @@
 #ifndef VIDEO_DETECTION_DETECTOR_DUMMY_H
 #define VIDEO_DETECTION_DETECTOR_DUMMY_H
 
+#include "detector.h"
 
 class DummyDetector : public Detector
 {

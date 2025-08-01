@@ -19,6 +19,7 @@ public:
     struct Config {
         int devId;
         int channelId;
+        int decodeId;
         std::string inputUrl;        // URL or file path of the video stream
         int frameDropInterval = 0;   // 0 = no frame drop
         std::string outputUrl;
