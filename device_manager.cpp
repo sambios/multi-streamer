@@ -18,7 +18,7 @@ YoloDetectorPtr DeviceManager::getDetector(int devId) {
         return mMapDetectors[devId];
     }
 
-    YoloDetectorPtr detector = std::make_shared<YoloDetector>(devId);
+    DetectorPtr detector = std::make_shared<Detector>(devId);
     mMapDetectors[devId] = detector;
 
     return detector;

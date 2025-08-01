@@ -64,7 +64,7 @@ private:
     Config m_config;
     std::unique_ptr<otl::StreamDecoder> m_decoder;
     std::unique_ptr<otl::FfmpegOutputer> m_output;
-    std::shared_ptr<YoloDetector> m_detector;
+    std::shared_ptr<Detector> m_detector;
     std::shared_ptr<otl::InferencePipe<FrameInfo>> m_inferPipe;
     std::atomic<bool> m_running{false};
     DeviceManagerPtr m_detectorManager;

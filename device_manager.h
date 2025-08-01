@@ -12,13 +12,13 @@ class FrameInfo;
 
 class DeviceManager
 {
-    std::unordered_map<int, YoloDetectorPtr> mMapDetectors;
+    std::unordered_map<int, DetectorPtr> mMapDetectors;
     std::unordered_map<int, std::shared_ptr<otl::InferencePipe<FrameInfo>> > m_mapInferPipe;
 public:
     DeviceManager();
     virtual ~DeviceManager();
 
-    YoloDetectorPtr getDetector(int devId);
+    DetectorPtr getDetector(int devId);
     std::shared_ptr<otl::InferencePipe<FrameInfo>> getInferPipe(int devId);
 };
 

@@ -4,7 +4,7 @@ project(video_detection)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(USE_DUMMY_DETECTOR "Use dummy detector" ON)
+option(USE_DUMMY_DETECTOR "Use dummy detector" OFF)
 option(USE_HW_CODEC "use hardware accelerator" ON)
 option(USE_TOPS_FFMPEG "use Tops ffmpeg" ON)
 
@@ -14,10 +14,10 @@ find_package(OpenCV REQUIRED)
 if (NOT USE_DUMMY_DETECTOR)
     # Find TopsInference
     find_path(TOPSINFERENCE_INCLUDE_DIR TopsInference/TopsInferRuntime.h
-            PATHS /usr/local/include /usr/include
+            PATHS /opt/tops/include /usr/include
             DOC "TopsInference include directory")
     find_library(TOPSINFERENCE_LIBRARY TopsInference
-            PATHS /usr/local/lib /usr/lib
+            PATHS /lib /opt/tops/lib 
             DOC "TopsInference library")
 endif()
 
@@ -60,6 +60,8 @@ endif()
 include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/../otl
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+	${TOPSINFERENCE_INCLUDE_DIR}/include
+	/opt/tops/include
 	${FFMPEG_INCLUDE_DIRS}
 )
 

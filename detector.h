@@ -6,11 +6,21 @@
 #define VIDEO_DETECTION_DETECTOR_H
 
 #include "otl_pipeline.h"
+#include <opencv2/opencv.hpp>
+#include <memory>
+#include <vector>
 
 // declare some structures
 class Streamer;
 struct AVPacket;
 struct AVFrame;
+
+struct Bbox
+{
+    int classId;
+    float confidence;
+    cv::Rect rect;
+};
 
 struct FrameInfo
 {
@@ -18,20 +28,18 @@ struct FrameInfo
     AVPacket *pkt;
     AVFrame *frame;
     std::shared_ptr<Streamer> streamer;
+    std::vector<Bbox> bboxes;
 };
 
-class YoloDetector : public otl::DetectorDelegate<FrameInfo>
+class Detector : public otl::DetectorDelegate<FrameInfo>
 {
 public:
-    YoloDetector(int devId = 0);
-    virtual ~YoloDetector();
-public:
-    int preprocess(std::vector<FrameInfo> &frames) override;
-    int forward(std::vector<FrameInfo> &frames) override;
-    int postprocess(std::vector<FrameInfo> &frames) override;
+    static std::shared_ptr<Detector> createDetector(int devId);
+    virtual ~Detector(){}
 };
 
-using YoloDetectorPtr = std::shared_ptr<YoloDetector>;
+using DetectorPtr = std::shared_ptr<Detector>;
+
 
 
 #endif //VIDEO_DETECTION_DETECTOR_H
