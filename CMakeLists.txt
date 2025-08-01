@@ -14,10 +14,15 @@ find_package(OpenCV REQUIRED)
 if (NOT USE_DUMMY_DETECTOR)
     # Find TopsInference
     find_path(TOPSINFERENCE_INCLUDE_DIR TopsInference/TopsInferRuntime.h
-            PATHS /opt/tops/include /usr/include
+            PATHS /opt/tops/include $ENV{HOME}/enrigin_sdk/usr/include
             DOC "TopsInference include directory")
+
+    find_path(TOPS_INCLUDE_DIR tops/tops_ext.h
+            PATHS /opt/tops/include $ENV{HOME}/enrigin_sdk/opt/tops/include
+            DOC "TopsInference include directory")
+
     find_library(TOPSINFERENCE_LIBRARY TopsInference
-            PATHS /lib /opt/tops/lib 
+            PATHS /lib /opt/tops/lib $ENV{HOME}/enrigin_sdk/usr/lib
             DOC "TopsInference library")
 endif()
 
@@ -61,7 +66,7 @@ include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/../otl
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 	${TOPSINFERENCE_INCLUDE_DIR}/include
-	/opt/tops/include
+	${TOPS_INCLUDE_DIR}
 	${FFMPEG_INCLUDE_DIRS}
 )
 

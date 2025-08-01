@@ -6,7 +6,15 @@
 #define VIDEO_DETECTION_DETECTOR_DUMMY_H
 
 
-class detector_dummy {};
-
+class DummyDetector : public Detector
+{
+public:
+    DummyDetector(int devId = 0);
+    virtual ~DummyDetector();
+public:
+    int preprocess(std::vector<FrameInfo> &frames) override;
+    int forward(std::vector<FrameInfo> &frames) override;
+    int postprocess(std::vector<FrameInfo> &frames) override;
+};
 
 #endif //VIDEO_DETECTION_DETECTOR_DUMMY_H

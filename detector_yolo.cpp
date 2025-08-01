@@ -210,7 +210,7 @@ int YoloDetector::forward(std::vector<FrameInfo>& frames) {
             outputTensors.data()
         );
 
-        if (status != TopsInference::TIF_OK) {
+        if (status != TopsInference::TIF_SUCCESS) {
             std::cerr << "Inference failed with status: " << status << std::endl;
 
             // Cleanup tensors
@@ -350,4 +350,11 @@ void YoloDetector::cleanup() {
     }
 
     TopsInference::topsInference_finish();
+}
+
+
+std::shared_ptr<Detector> Detector::createDetector(int devId) {
+    std::shared_ptr<Detector> detector;
+    detector.reset(new YoloDetector(devId));
+    return detector;
 }

@@ -13,12 +13,13 @@ DeviceManager::~DeviceManager() {
 }
 
 
-YoloDetectorPtr DeviceManager::getDetector(int devId) {
+DetectorPtr DeviceManager::getDetector(int devId) {
     if (mMapDetectors.find(devId) != mMapDetectors.end()) {
         return mMapDetectors[devId];
     }
 
-    DetectorPtr detector = std::make_shared<Detector>(devId);
+    //DetectorPtr detector = std::make_shared<Detector>(devId);
+    DetectorPtr detector = Detector::createDetector(devId);
     mMapDetectors[devId] = detector;
 
     return detector;

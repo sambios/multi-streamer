@@ -25,7 +25,7 @@ public:
 private:
     // TopsInference components
     TopsInference::IEngine* m_engine;
-    TopsInference::DeviceHandler_t m_handler;
+    TopsInference::handler_t m_handler;
 
     // Model parameters
     int m_deviceId;
