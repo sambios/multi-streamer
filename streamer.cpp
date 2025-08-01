@@ -18,7 +18,7 @@ bool Streamer::init(const Config& config) {
     m_decoder->setObserver(this);
 
     m_detector = m_detectorManager->getDetector(config.devId);
-    m_inferPipe = m_detectorManager->getInferPipe(config.devId);
+    //m_inferPipe = m_detectorManager->getInferPipe(config.devId);
 
     if (m_decoder->openStream(config.inputUrl) != 0) {
         std::cout << "OpenStream " << config.inputUrl << " failed!" << std::endl;
@@ -92,5 +92,13 @@ void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
 
     frame.streamer = get_shared_ptr();
 
-    m_inferPipe->push_frame(&frame);
+    //m_inferPipe->push_frame(&frame);
+
+    std::vector<FrameInfo> frames;
+    m_detector->preprocess(frames);
+    m_detector->forward(frames);
+    m_detector->postprocess(frames);
+
+
+    if (m_output) m_output->inputPacket(pkt);
 }

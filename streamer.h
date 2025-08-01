@@ -13,6 +13,8 @@
 #include "stream_decode_hw.h"
 #include "stream_pusher.h"
 #include "device_manager.h"
+#include "detector.h"
+
 
 class Streamer : public otl::StreamDecoderEvents, public std::enable_shared_from_this<Streamer>{
 public:
@@ -72,4 +74,5 @@ private:
     FrameCallback m_frameCallback;
     mutable std::mutex m_mutex;
     Stats m_stats;
+
 };
