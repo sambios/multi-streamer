@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << otl::format("ch-num=%d FPS=%.2f\n", streamers.size(), total);
         std::cout.flush();
-    }, 1, &timerId);
+    }, -1, &timerId);
 
     timerQueue->runLoop();
 

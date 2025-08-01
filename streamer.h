@@ -10,7 +10,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "otl_timer.h"
-#include "stream_decode.h"
+#include "stream_decode_hw.h"
 #include "stream_pusher.h"
 #include "device_manager.h"
 

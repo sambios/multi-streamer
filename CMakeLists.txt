@@ -4,17 +4,25 @@ project(video_detection)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(USE_DUMMY_DETECTOR "Use dummy detector" ON)
+option(USE_HW_CODEC "use hardware accelerator" ON)
+option(USE_TOPS_FFMPEG "use Tops ffmpeg" ON)
+
 # Find required packages
 find_package(OpenCV REQUIRED)
-find_package(Threads REQUIRED)
 
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../otl
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+if (NOT USE_DUMMY_DETECTOR)
+    # Find TopsInference
+    find_path(TOPSINFERENCE_INCLUDE_DIR TopsInference/TopsInferRuntime.h
+            PATHS /usr/local/include /usr/include
+            DOC "TopsInference include directory")
+    find_library(TOPSINFERENCE_LIBRARY TopsInference
+            PATHS /usr/local/lib /usr/lib
+            DOC "TopsInference library")
+endif()
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-    message(STATUS "检测到 macOS 系统")
+    message(STATUS "detected macOS system")
     # macOS 特定配置
     #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
     # 示例：链接 macOS 框架
@@ -22,56 +30,77 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
     # target_link_libraries(your_target PRIVATE ${CORE_FOUNDATION)
     include_directories(/opt/homebrew/include)
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-    message(STATUS "检测到 Linux 系统")
+    message(STATUS "detected Linux system")
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
-    message(STATUS "检测到 Windows 系统")
+    message(STATUS "detected  Windows system")
 else()
-    message(STATUS "未知系统：${CMAKE_SYSTEM_NAME}")
+	message(STATUS "Unknown：${CMAKE_SYSTEM_NAME}")
 endif()
 
-find_package(OpenCV REQUIRED)
+if (NOT USE_TOPS_FFMPEG)
+    # Find FFmpeg using pkg-config
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+            libavcodec
+            libavformat
+            libavfilter
+            libavutil
+            libswscale
+            libavdevice
+    )
+   
+    set(FFMPEG_LINK_LIBS PkgConfig::FFMPEG)
 
-# Find FFmpeg using pkg-config
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-    libavcodec
-    libavformat
-    libavfilter
-    libavutil
-    libswscale
-    libavdevice
+else()
+    set(FFMPEG_INCLUDE_DIRS /home/jovyan/buildroot/include)
+    set(FFMPEG_LINK_DIRS /opt/tops/lib)
+    set(FFMPEG_LINK_LIBS avcodec avformat avfilter avutil swscale avdevice)
+endif()
+
+include_directories(
+        ${CMAKE_CURRENT_SOURCE_DIR}/../otl
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+	${FFMPEG_INCLUDE_DIRS}
 )
+
+link_directories(${FFMPEG_LINK_DIRS})
 
 add_subdirectory(../otl otl.dir)
 
+if (USE_DUMMY_DETECTOR)
+    set(DETECTOR_SRCS detector_dummy.cpp)
+else()
+    set(DETECTOR_SRCS detector_yolo.cpp)
+endif()
+
 # Add source files
 add_executable(${PROJECT_NAME}
-    main.cpp
-    streamer.cpp
-    streamer.h
+        main.cpp
+        streamer.cpp
+        streamer.h
         detector.cpp
         detector.h
-        ../otl/otl_detector.cpp
-        ../otl/otl_detector.h
         device_manager.cpp
         device_manager.h
-        ../otl/otl_baseclass.h
+        ${DETECTOR_SRCS}
 )
 
 # Include directories
 target_include_directories(${PROJECT_NAME}
-    PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
+        ${TOPSINFERENCE_INCLUDE_DIR}
 )
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
-    PRIVATE
-    PkgConfig::FFMPEG
-    ${OpenCV_LIBS}
-    Threads::Threads
+        PRIVATE
+        ${FFMPEG_LINK_LIBS}
+        ${OpenCV_LIBS}
         otl
+        ${TOPSINFERENCE_LIBRARY}
+	pthread
 )
 
 # Enable C++17 features
@@ -82,5 +111,5 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Add install target
 install(TARGETS ${PROJECT_NAME}
-    RUNTIME DESTINATION bin
+        RUNTIME DESTINATION bin
 )
