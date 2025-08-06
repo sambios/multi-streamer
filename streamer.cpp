@@ -20,17 +20,27 @@ bool Streamer::init(const Config& config) {
     m_detector = m_detectorManager->getDetector(config.devId);
     //m_inferPipe = m_detectorManager->getInferPipe(config.devId);
 
-    if (m_decoder->openStream(config.inputUrl) != 0) {
-        std::cout << "OpenStream " << config.inputUrl << " failed!" << std::endl;
+
+
+    return true;
+}
+
+bool Streamer::start() {
+    if (m_running) {
+        return false;
+    }
+
+    if (m_decoder->openStream(m_config.inputUrl) != 0) {
+        std::cout << "OpenStream " << m_config.inputUrl << " failed!" << std::endl;
         return false;
     }
 
     //---- stream operations -----//
-    m_decoder->setAvformatOpenedCallback([this, config](const AVFormatContext* ifmtCtx)
+    m_decoder->setAvformatOpenedCallback([this](const AVFormatContext* ifmtCtx)
     {
         if (m_output == nullptr) {
             m_output = std::make_unique<otl::FfmpegOutputer>();
-            m_output->openOutputStream(config.outputUrl, ifmtCtx);
+            m_output->openOutputStream(m_config.outputUrl, ifmtCtx);
         }
     });
 
@@ -51,16 +61,6 @@ bool Streamer::init(const Config& config) {
         }
     });
 
-
-    return true;
-}
-
-bool Streamer::start(FrameCallback callback) {
-    if (m_running) {
-        return false;
-    }
-
-    m_frameCallback = std::move(callback);
     m_running = true;
     return true;
 }
@@ -78,8 +78,6 @@ Streamer::Stats Streamer::getStats() {
 
 void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
     m_fpsStat->update();
-
-    if (m_frameCallback) m_frameCallback(pkt, pFrame);
 
     FrameInfo frame;
     frame.pkt = av_packet_alloc();

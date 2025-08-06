@@ -42,7 +42,7 @@ public:
     Streamer& operator=(const Streamer&) = delete;
 
     bool init(const Config& config);
-    bool start(FrameCallback callback);
+    bool start();
     void stop();
     bool isRunning() const { return m_running; }
     Stats getStats();
@@ -71,7 +71,6 @@ private:
     std::shared_ptr<otl::InferencePipe<FrameInfo>> m_inferPipe;
     std::atomic<bool> m_running{false};
     DeviceManagerPtr m_detectorManager;
-    FrameCallback m_frameCallback;
     mutable std::mutex m_mutex;
     Stats m_stats;
 

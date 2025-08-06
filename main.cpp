@@ -27,8 +27,8 @@ int main(int argc, char* argv[]) {
     std::string configFilePath;
     if (std::filesystem::exists("config.json")) {
         configFilePath = "config.json";
-    }else if (std::filesystem::exists("../config.json")) {
-        configFilePath = "../config.json";
+    }else if (std::filesystem::exists("../../multi-streamer/config.json")) {
+        configFilePath = "../../multi-streamer/config.json";
     }
 
     std::ifstream configFile(configFilePath);
@@ -47,10 +47,10 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::shared_ptr<Streamer>> streamers;
     // 从 JSON 对象中提取配置信息
-    int card_nums = 3;
     int channelId = 0;
+    int card_nums = configsJson["dev_num"].get<int>();
 
-    for (int devId = 1; devId < card_nums; ++devId) {
+    for (int devId = 0; devId < card_nums; ++devId) {
 
         // 读取卡的运行配置
         std::vector<Streamer::Config> configs;
@@ -120,10 +120,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
 
-            streamer->start([](const AVPacket *pkt, const AVFrame *frame) {
-                //std::cout << "Received frame: " << frame->width << "x" << frame->height << std::endl;
-
-            });
+            streamer->start();
 
             streamers.push_back(streamer);
         }
