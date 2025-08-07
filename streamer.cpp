@@ -18,7 +18,7 @@ bool Streamer::init(const Config& config) {
     m_decoder->setObserver(this);
 
     m_detector = m_detectorManager->getDetector(config.devId);
-    //m_inferPipe = m_detectorManager->getInferPipe(config.devId);
+    m_inferPipe = m_detectorManager->getInferPipe(config.devId);
 
 
 
@@ -77,12 +77,13 @@ Streamer::Stats Streamer::getStats() {
 }
 
 void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
+    //1. statistic
     m_fpsStat->update();
 
+    // 2. Post Frame to queue
     FrameInfo frame;
     frame.pkt = av_packet_alloc();
     av_packet_copy_props(frame.pkt, pkt);
-    //printf("%d, pts = %d\n", m_config.id, pkt->pts);
     av_packet_ref(frame.pkt, pkt);
 
     frame.frame = av_frame_alloc();
@@ -90,13 +91,5 @@ void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
 
     frame.streamer = get_shared_ptr();
 
-    //m_inferPipe->push_frame(&frame);
-
-    std::vector<FrameInfo> frames;
-    m_detector->preprocess(frames);
-    m_detector->forward(frames);
-    m_detector->postprocess(frames);
-
-
-    if (m_output) m_output->inputPacket(pkt);
+    m_inferPipe->push_frame(&frame);
 }
