@@ -35,7 +35,8 @@ bool Streamer::start() {
     }
 
     AVDictionary *opts=NULL;
-    av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
+    //av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
+    //av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
     if (m_decoder->openStream(m_config.inputUrl, true,  opts) != 0) {
         std::cout << "OpenStream " << m_config.inputUrl << " failed!" << std::endl;
         return false;
@@ -114,8 +115,6 @@ Streamer::Stats Streamer::getStats() {
 void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
     //1. statistic
     m_fpsStat->update();
-
-
 
     if (m_config.detectEnabled) {
         // 2. Post Frame to queue

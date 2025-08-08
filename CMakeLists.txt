@@ -62,7 +62,7 @@ if (NOT USE_TOPS_FFMPEG)
 else()
     set(FFMPEG_INCLUDE_DIRS $ENV{HOME}/buildroot/include)
     set(FFMPEG_LINK_DIRS /opt/tops/lib $ENV{HOME}/enrigin_sdk/opt/tops/lib)
-    set(FFMPEG_LINK_LIBS avcodec avformat avfilter avutil swscale swresample avdevice)
+    set(FFMPEG_LINK_LIBS avfilter avdevice avformat avcodec swresample swscale avutil)
 endif()
 
 set(MULTISTREAMER_INC_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../otl
@@ -107,11 +107,11 @@ target_include_directories(${PROJECT_NAME}
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        ${FFMPEG_LINK_LIBS}
-        ${OpenCV_LIBS}
         otl
         ${TOPSINFERENCE_LIBRARY}
-	pthread
+        ${OpenCV_LIBS}
+        ${FFMPEG_LINK_LIBS}
+        pthread
 )
 
 # Enable C++17 features
