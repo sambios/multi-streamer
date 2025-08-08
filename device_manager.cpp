@@ -37,7 +37,7 @@ std::shared_ptr<otl::InferencePipe<FrameInfo>> DeviceManager::getInferPipe(int d
     param.batch_num = 1;
     param.inference_thread_num = 1;
     param.preprocess_thread_num = 1;
-    
+
     std::shared_ptr<otl::InferencePipe<FrameInfo>>  inferPipe = std::make_shared<otl::InferencePipe<FrameInfo>>();
     inferPipe->init(param, detector);
     m_mapInferPipe[devId] = inferPipe;

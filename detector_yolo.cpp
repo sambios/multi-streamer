@@ -120,25 +120,8 @@ bool nonMaximumSuppression(const std::vector<cv::Rect> rects,
 }
 
 YoloDetector::YoloDetector(int devId) : m_deviceId(devId), m_engine(nullptr),
-                                       m_confThreshold(0.45f), m_nmsThreshold(0.25f),
-                                       m_currentBuffer(0) {
-    // Initialize TopsInference
-    TopsInference::topsInference_init();
-    
-    // Set device
-    std::vector<uint32_t> cluster_ids = {0};
-    m_handler = TopsInference::set_device(m_deviceId, cluster_ids.data(), cluster_ids.size());
-    
-    if (!m_handler) {
-        std::cerr << "Failed to set device " << m_deviceId << std::endl;
-        return;
-    }
-    
-    // Initialize engine with default model path
-    std::string modelPath = "yolov5s.onnx"; // Default model path
-    if (!initializeEngine(modelPath)) {
-        std::cerr << "Failed to initialize engine" << std::endl;
-    }
+                                       m_confThreshold(0.45f), m_nmsThreshold(0.25f){
+
 }
 
 YoloDetector::~YoloDetector() {
@@ -231,8 +214,24 @@ void YoloDetector::freeHostMemory(std::vector<void*> &datum) {
     datum.clear();
 }
 
-bool YoloDetector::initializeEngine(const std::string& modelPath) {
+int YoloDetector::initialize() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_engine != nullptr) return 0;
     try {
+        // Initialize TopsInference
+        TopsInference::topsInference_init();
+
+        // Set device
+        std::vector<uint32_t> cluster_ids = {0};
+        m_handler = TopsInference::set_device(m_deviceId, cluster_ids.data(), cluster_ids.size());
+        if (!m_handler) {
+            std::cerr << "threadid=" << std::this_thread::get_id() << ", Failed to set device " << m_deviceId << std::endl;
+            return -1;
+        }
+
+        // Initialize engine with default model path
+        std::string modelPath = "yolov5s.onnx"; // Default model path
+
         // Generate .exec file path from ONNX model path
         fs::path onnxPath(modelPath);
         std::string execPath = onnxPath.filename().string() + ".exec";
@@ -248,7 +247,7 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
             m_engine = TopsInference::create_engine();
             if (!m_engine) {
                 std::cerr << "Failed to create engine for loading" << std::endl;
-                return false;
+                return -1;
             }
             
             // Load pre-built engine
@@ -257,7 +256,7 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
                 std::cerr << "Failed to load pre-built engine from: " << execPath << std::endl;
                 TopsInference::release_engine(m_engine);
                 m_engine = nullptr;
-                return false;
+                return -1;
             }
             
             std::cout << "Successfully loaded pre-built engine from: " << execPath << std::endl;
@@ -269,14 +268,14 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
             TopsInference::IParser* parser = TopsInference::create_parser(TopsInference::TIF_ONNX);
             if (!parser) {
                 std::cerr << "Failed to create parser" << std::endl;
-                return false;
+                return -1;
             }
 
             TopsInference::INetwork* network = parser->readModel(modelPath.c_str());
             if (!network) {
                 std::cerr << "Failed to read model: " << modelPath << std::endl;
                 TopsInference::release_parser(parser);
-                return false;
+                return -1;
             }
 
             // Create optimizer and build engine
@@ -285,7 +284,7 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
                 std::cerr << "Failed to create optimizer" << std::endl;
                 TopsInference::release_network(network);
                 TopsInference::release_parser(parser);
-                return false;
+                return -1;
             }
 
             std::cout << "Building engine from ONNX model..." << std::endl;
@@ -295,7 +294,7 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
                 TopsInference::release_optimizer(optimizer);
                 TopsInference::release_network(network);
                 TopsInference::release_parser(parser);
-                return false;
+                return -1;
             }
             
             std::cout << "Engine built successfully, saving to: " << execPath << std::endl;
@@ -348,273 +347,262 @@ bool YoloDetector::initializeEngine(const std::string& modelPath) {
         std::cout << "YOLOv5 engine initialized successfully" << std::endl;
         std::cout << "Input size: " << m_inputWidth << "x" << m_inputHeight << std::endl;
 
-        return true;
+        return 0;
     } catch (const std::exception& e) {
         std::cerr << "Exception in initializeEngine: " << e.what() << std::endl;
-        return false;
+        return -1;
     }
 }
 
 
 
-int YoloDetector::preprocess(std::vector<FrameInfo>& frames) {
+int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_engine) {
-        std::cerr << "Engine not initialized" << std::endl;
+        std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
         return -1;
     }
 
-    int batchSize = frames.size();
-     
-    // 加锁保护共享资源
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    // 分配当前缓冲区的输入内存，而不是下一个缓冲区
-    // 这确保了我们在forward中使用的输入数据是已准备好的
-    
-    // Free previous input memory for current buffer
-    freeHostMemory(m_netInputs[m_currentBuffer]);
-    
-    // Allocate host memory for batch inputs (following yolov5_ref.cpp pattern)
-    m_netInputs[m_currentBuffer] = allocHostMemory(m_inputShapes, batchSize, false);
-    
-    // Shape is [n, c, h, w]
-    int inputW = m_inputShapes[0].dims[3];
-    int inputH = m_inputShapes[0].dims[2];
+    for (auto& frameInfo : frameInfos)
+    {
+        int batchSize = 1;
+        frameInfo.netInputs = allocHostMemory(m_inputShapes, 1, false);
+        // Shape is [n, c, h, w]
+        int inputW = m_inputShapes[0].dims[3];
+        int inputH = m_inputShapes[0].dims[2];
+        for (int shapeIdx = 0; shapeIdx < m_inputShapes.size(); ++shapeIdx)
+        {
+            for (int i = 0; i < batchSize; ++i)
+            {
+                // Convert AVFrame to cv::Mat
+                cv::Mat image;
+                if (frameInfo.frame)
+                {
+                    // Simple AVFrame to cv::Mat conversion for YUV420P format
+                    AVFrame* frame = frameInfo.frame;
+                    int width = frame->width;
+                    int height = frame->height;
 
-    for (int shapeIdx = 0; shapeIdx < m_inputShapes.size(); ++shapeIdx) {
-        for (int i = 0; i < batchSize; ++i) {
-            // Convert AVFrame to cv::Mat
-            cv::Mat image;
-            if (frames[i].frame) {
-                // Simple AVFrame to cv::Mat conversion for YUV420P format
-                AVFrame* frame = frames[i].frame;
-                int width = frame->width;
-                int height = frame->height;
-                
-                // Create cv::Mat from YUV420P data
-                cv::Mat yuv(height + height/2, width, CV_8UC1, frame->data[0], frame->linesize[0]);
-                cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_I420);
-            } else {
-                std::cerr << "Invalid frame at index " << i << std::endl;
-                return -1;
-            }
-
-            // Letterbox preprocessing (following yolov5_ref.cpp pattern)
-            int maxLen = std::max(image.cols, image.rows);
-            cv::Mat image2 = cv::Mat::zeros(cv::Size(maxLen, maxLen), CV_8UC3);
-            image.copyTo(image2(cv::Rect(0, 0, image.cols, image.rows)));
-            
-            cv::Mat input;
-            cv::resize(image2, input, cv::Size(inputW, inputH));
-            
-            // Convert BGR to RGB and normalize to [0, 1]
-            cv::cvtColor(input, input, cv::COLOR_BGR2RGB);
-            input.convertTo(input, CV_32F, 1.0f / 255.0f);
-
-            // Convert HWC to CHW format and copy to input buffer
-            int planeSize = input.cols * input.rows;
-            // 使用当前缓冲区而不是nextBuffer
-            float *begin = static_cast<float *>((void*)((char*)m_netInputs[m_currentBuffer][shapeIdx] + m_inputShapes[shapeIdx].mem_size*i));
-            cv::Mat b(cv::Size(input.cols, input.rows), CV_32FC1, begin);
-            cv::Mat g(cv::Size(input.cols, input.rows), CV_32FC1, begin + planeSize);
-            cv::Mat r(cv::Size(input.cols, input.rows), CV_32FC1, begin + (planeSize << 1));
-            cv::Mat rgb[3] = {r, g, b};
-            cv::split(input, rgb);
-        }
-    }
-
-    return 0;
-}
-
-int YoloDetector::forward(std::vector<FrameInfo>& frames) {
-    if (!m_engine) {
-        std::cerr << "Engine not ready" << std::endl;
-        return -1;
-    }
-
-    int batch_size = frames.size();
-     
-    // 加锁保护共享资源
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    // 确保当前索引合法
-    int nextBuffer = 1 - m_currentBuffer;
-    
-    // 先分配新的输出内存
-    freeHostMemory(m_netOutputs[nextBuffer]);
-    m_netOutputs[nextBuffer] = allocHostMemory(m_outputShapes, batch_size, false);
-    
-    // 只有在新内存分配成功后，才切换缓冲区
-    m_currentBuffer = nextBuffer;
-
-    // Run inference using runWithBatch (following yolov5_ref.cpp pattern)
-    auto success = m_engine->runWithBatch(
-        batch_size, 
-        m_netInputs[m_currentBuffer].data(),
-        m_netOutputs[m_currentBuffer].data(),
-        TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
-        
-    if (!success) {
-        std::cerr << "engine runWithBatch failed." << std::endl;
-        return -1;
-    }
-
-    return 0;
-}
-
-
-
-int YoloDetector::postprocess(std::vector<FrameInfo>& frames) {
-    // 加锁保护共享资源
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    if (m_netOutputs[m_currentBuffer].empty()) {
-        std::cerr << "No output data available" << std::endl;
-        return -1;
-    }
-    
-    // Shape is [n, c, h, w]
-    int inputW = m_inputShapes[0].dims[3];
-    int inputH = m_inputShapes[0].dims[2];
-
-    // 保存当前处理的批次大小
-    int currentBatchSize = frames.size();
-    
-    // 检查是否有足够的输出形状信息
-    if (m_outputShapes.empty()) {
-        std::cerr << "Output shapes not initialized" << std::endl;
-        return -1;
-    }
-    
-    // 检查输出索引是否有效
-    int outputShapeIdx = 0; // yolov5-v6.2 has only one output shape
-    if (outputShapeIdx >= m_outputShapes.size() || outputShapeIdx >= m_netOutputs[m_currentBuffer].size()) {
-        std::cerr << "Invalid output shape index" << std::endl;
-        return -1;
-    }
-    
-    for (int batchIdx = 0; batchIdx < currentBatchSize; ++batchIdx) {
-        // 边界检查，确保不越界
-        if (batchIdx >= currentBatchSize) {
-            std::cerr << "Batch index " << batchIdx << " exceeds batch size " << currentBatchSize << std::endl;
-            continue;
-        }
-        
-        // Clear previous detections
-        frames[batchIdx].bboxes.clear();
-        
-        // 计算单个样本输出所需的内存大小
-        size_t singleOutputSize = m_outputShapes[outputShapeIdx].volume;
-        
-        // 检查内存越界
-        size_t maxElements = m_outputShapes[outputShapeIdx].mem_size / sizeof(float);
-        if (batchIdx * singleOutputSize + singleOutputSize > maxElements) {
-            std::cerr << "Memory access out of bounds: batchIdx=" << batchIdx 
-                     << ", volume=" << singleOutputSize 
-                     << ", max=" << maxElements << std::endl;
-            continue;
-        }
-        
-        // 计算安全的内存偏移量，确保不会越界
-        size_t safeOffset = std::min(batchIdx * singleOutputSize, maxElements - singleOutputSize);
-        float* output1 = (float*)m_netOutputs[m_currentBuffer][outputShapeIdx] + safeOffset;
-       
-        std::vector<cv::Rect> selected_boxes;
-        std::vector<float> confidence;
-        std::vector<int> class_id;
-
-        // YOLOv5 output format: [1, 25200, 85] where 85 = 4(bbox) + 1(conf) + 80(classes)
-        int num_detections = m_outputShapes[outputShapeIdx].dims[1]; // 25200
-        int detection_size = m_outputShapes[outputShapeIdx].dims[2]; // 85
-        
-        for (int i = 0; i < num_detections; ++i) {
-            float* detection = output1 + i * detection_size;
-            
-            // Extract bbox coordinates and confidence
-            float center_x = detection[0];
-            float center_y = detection[1];
-            float width = detection[2];
-            float height = detection[3];
-            float objectness = detection[4];
-            
-            // Skip low confidence detections
-            if (objectness < m_confThreshold) continue;
-            
-            // Find best class
-            float max_class_score = 0.0f;
-            int best_class_id = 0;
-            for (int c = 0; c < m_numClasses; ++c) {
-                float class_score = detection[5 + c];
-                if (class_score > max_class_score) {
-                    max_class_score = class_score;
-                    best_class_id = c;
+                    // Create cv::Mat from YUV420P data
+                    cv::Mat yuv(height + height / 2, width, CV_8UC1, frame->data[0], frame->linesize[0]);
+                    cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_I420);
                 }
+                else
+                {
+                    std::cerr << "Invalid frame at index " << i << std::endl;
+                    return -1;
+                }
+
+                // Letterbox preprocessing (following yolov5_ref.cpp pattern)
+                int maxLen = std::max(image.cols, image.rows);
+                cv::Mat image2 = cv::Mat::zeros(cv::Size(maxLen, maxLen), CV_8UC3);
+                image.copyTo(image2(cv::Rect(0, 0, image.cols, image.rows)));
+
+                cv::Mat input;
+                cv::resize(image2, input, cv::Size(inputW, inputH));
+
+                // Convert BGR to RGB and normalize to [0, 1]
+                cv::cvtColor(input, input, cv::COLOR_BGR2RGB);
+                input.convertTo(input, CV_32F, 1.0f / 255.0f);
+
+                // Convert HWC to CHW format and copy to input buffer
+                int planeSize = input.cols * input.rows;
+                // 使用当前缓冲区而不是nextBuffer
+                auto* begin = static_cast<float*>((void*)((char*)frameInfo.netInputs[shapeIdx] + m_inputShapes[shapeIdx].mem_size * i));
+                cv::Mat b(cv::Size(input.cols, input.rows), CV_32FC1, begin);
+                cv::Mat g(cv::Size(input.cols, input.rows), CV_32FC1, begin + planeSize);
+                cv::Mat r(cv::Size(input.cols, input.rows), CV_32FC1, begin + (planeSize << 1));
+                cv::Mat rgb[3] = {r, g, b};
+                cv::split(input, rgb);
             }
-            
-            float final_score = objectness * max_class_score;
-            if (final_score < m_confThreshold) continue;
-            
-            // Convert center format to corner format
-            int x = static_cast<int>(center_x - width / 2);
-            int y = static_cast<int>(center_y - height / 2);
-            int w = static_cast<int>(width);
-            int h = static_cast<int>(height);
-            
-            selected_boxes.push_back(cv::Rect(x, y, w, h));
-            confidence.push_back(final_score);
-            class_id.push_back(best_class_id);
         }
-        
-        // No object detected
-        if (selected_boxes.size() == 0) {
-            //std::cout << "no bbox over score threshold detected." << std::endl;
-            continue;
+    }
+
+    return 0;
+}
+
+int YoloDetector::forward(std::vector<FrameInfo>& frameInfos) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (!m_engine) {
+        std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
+        return -1;
+    }
+
+   for (auto& frameInfo : frameInfos)
+   {
+       freeHostMemory(frameInfo.netOutputs);
+       frameInfo.netOutputs = allocHostMemory(m_outputShapes, 1, false);
+
+       // Run inference using runWithBatch (following yolov5_ref.cpp pattern)
+       auto success = m_engine->runWithBatch(
+           1,
+           frameInfo.netInputs.data(),
+           frameInfo.netOutputs.data(),
+           TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+       if (!success) {
+           std::cerr << "engine runWithBatch failed." << std::endl;
+           return -1;
+       }
+   }
+
+    return 0;
+}
+
+
+
+int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
+
+    for (auto& frameInfo : frameInfos)
+    {
+        if (frameInfo.netOutputs.empty()) {
+            std::cerr << "No output data available" << std::endl;
+            return -1;
         }
-        
-        // Apply NMS using reference implementation
-        std::vector<int> indexes;
-        nonMaximumSuppression(selected_boxes, confidence, m_nmsThreshold, indexes);
-        
-        // Convert detections to Bbox format and scale coordinates
-        for (int id : indexes) {
-            auto result_box = selected_boxes[id];
-            
-            // Scale coordinates back to original image dimensions
-            int originalWidth = frames[batchIdx].frame->width;
-            int originalHeight = frames[batchIdx].frame->height;
-            
-            // Calculate scale factors (letterbox preprocessing)
-            int maxLen = std::max(originalWidth, originalHeight);
-            float scale = static_cast<float>(maxLen) / inputW;
-            
-            result_box.x = static_cast<int>(result_box.x * scale);
-            result_box.y = static_cast<int>(result_box.y * scale);
-            result_box.width = static_cast<int>(result_box.width * scale);
-            result_box.height = static_cast<int>(result_box.height * scale);
-            
-            // Clamp to image boundaries
-            result_box.x = std::max(0, std::min(result_box.x, originalWidth));
-            result_box.y = std::max(0, std::min(result_box.y, originalHeight));
-            result_box.width = std::max(0, std::min(result_box.width, originalWidth - result_box.x));
-            result_box.height = std::max(0, std::min(result_box.height, originalHeight - result_box.y));
-            
-            Bbox det_bbox;
-            det_bbox.rect = result_box;
-            det_bbox.confidence = confidence[id];
-            det_bbox.classId = class_id[id];
-            frames[batchIdx].bboxes.push_back(det_bbox);
-            
-            //std::string label = (label_map.find(class_id[id]) != label_map.end()) ? label_map[class_id[id]] : "unknown";
-            //std::cout << "cls: " << label << " conf: " << confidence[id]
-            //          << " (" << result_box.x << "," << result_box.y << "," 
-            //          << result_box.width << "," << result_box.height << ")" << std::endl;
+
+        const int batchSize = 1;
+        // Shape is [n, c, h, w]
+        int inputW = m_inputShapes[0].dims[3];
+        int inputH = m_inputShapes[0].dims[2];
+
+        // 检查是否有足够的输出形状信息
+        if (m_outputShapes.empty()) {
+            std::cerr << "Output shapes not initialized" << std::endl;
+            return -1;
         }
-        
-        //std::cout << "Frame " << batchIdx << ": Detected " << frames[batchIdx].bboxes.size() << " objects" << std::endl;
+
+        // 检查输出索引是否有效
+        int outputShapeIdx = 0; // yolov5-v6.2 has only one output shape
+        if (outputShapeIdx >= m_outputShapes.size() || outputShapeIdx >= frameInfo.netOutputs.size()) {
+            std::cerr << "Invalid output shape index" << std::endl;
+            return -1;
+        }
+
+        for (int batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
+            // 边界检查，确保不越界
+            if (batchIdx >= batchSize) {
+                std::cerr << "Batch index " << batchIdx << " exceeds batch size " << batchSize << std::endl;
+                continue;
+            }
+
+            // Clear previous detections
+            frameInfo.detection.clear();
+
+            // 计算单个样本输出所需的内存大小
+            size_t singleOutputSize = m_outputShapes[outputShapeIdx].volume;
+
+            // 检查内存越界
+            size_t maxElements = m_outputShapes[outputShapeIdx].mem_size / sizeof(float);
+            if (batchIdx * singleOutputSize + singleOutputSize > maxElements) {
+                std::cerr << "Memory access out of bounds: batchIdx=" << batchIdx
+                         << ", volume=" << singleOutputSize
+                         << ", max=" << maxElements << std::endl;
+                continue;
+            }
+
+            // 计算安全的内存偏移量，确保不会越界
+            size_t safeOffset = std::min(batchIdx * singleOutputSize, maxElements - singleOutputSize);
+            float* output1 = (float*)frameInfo.netOutputs[outputShapeIdx] + safeOffset;
+
+            std::vector<cv::Rect> selected_boxes;
+            std::vector<float> confidence;
+            std::vector<int> class_id;
+
+            // YOLOv5 output format: [1, 25200, 85] where 85 = 4(bbox) + 1(conf) + 80(classes)
+            int num_detections = m_outputShapes[outputShapeIdx].dims[1]; // 25200
+            int detection_size = m_outputShapes[outputShapeIdx].dims[2]; // 85
+            int num_classes = detection_size - 5;
+
+            for (int i = 0; i < num_detections; ++i) {
+                float* detection = output1 + i * detection_size;
+
+                // Extract bbox coordinates and confidence
+                float center_x = detection[0];
+                float center_y = detection[1];
+                float width = detection[2];
+                float height = detection[3];
+                float objectness = detection[4];
+
+                // Skip low confidence detections
+                if (objectness < m_confThreshold) continue;
+
+                // Find best class
+                float max_class_score = 0.0f;
+                int best_class_id = 0;
+                for (int c = 0; c < num_classes; ++c) {
+                    float class_score = detection[5 + c];
+                    if (class_score > max_class_score) {
+                        max_class_score = class_score;
+                        best_class_id = c;
+                    }
+                }
+
+                float final_score = objectness * max_class_score;
+                if (final_score < m_confThreshold) continue;
+
+                // Convert center format to corner format
+                int x = static_cast<int>(center_x - width / 2);
+                int y = static_cast<int>(center_y - height / 2);
+                int w = static_cast<int>(width);
+                int h = static_cast<int>(height);
+
+                selected_boxes.push_back(cv::Rect(x, y, w, h));
+                confidence.push_back(final_score);
+                class_id.push_back(best_class_id);
+            }
+
+            // No object detected
+            if (selected_boxes.size() == 0) {
+                //std::cout << "no bbox over score threshold detected." << std::endl;
+                continue;
+            }
+
+            // Apply NMS using reference implementation
+            std::vector<int> indexes;
+            nonMaximumSuppression(selected_boxes, confidence, m_nmsThreshold, indexes);
+
+            // Convert detections to Bbox format and scale coordinates
+            for (int id : indexes) {
+                auto result_box = selected_boxes[id];
+
+                // Scale coordinates back to original image dimensions
+                int originalWidth = frameInfo.frame->width;
+                int originalHeight = frameInfo.frame->height;
+
+                // Calculate scale factors (letterbox preprocessing)
+                int maxLen = std::max(originalWidth, originalHeight);
+                float scale = static_cast<float>(maxLen) / inputW;
+
+                result_box.x = static_cast<int>(result_box.x * scale);
+                result_box.y = static_cast<int>(result_box.y * scale);
+                result_box.width = static_cast<int>(result_box.width * scale);
+                result_box.height = static_cast<int>(result_box.height * scale);
+
+                // Clamp to image boundaries
+                result_box.x = std::max(0, std::min(result_box.x, originalWidth));
+                result_box.y = std::max(0, std::min(result_box.y, originalHeight));
+                result_box.width = std::max(0, std::min(result_box.width, originalWidth - result_box.x));
+                result_box.height = std::max(0, std::min(result_box.height, originalHeight - result_box.y));
+
+                Bbox det_bbox;
+                det_bbox.rect = result_box;
+                det_bbox.confidence = confidence[id];
+                det_bbox.classId = class_id[id];
+                frameInfo.detection.push_back(det_bbox);
+
+                //std::string label = label_map[det_bbox.classId];
+                //std::cout << "cls: " << label << " conf: " << det_bbox.confidence
+                //          << " (" << result_box.x << "," << result_box.y << ","
+                //          << result_box.width << "," << result_box.height << ")" << std::endl;
+            }
+
+            //std::cout << "Frame " << batchIdx << ": Detected " << frameInfo.bboxes.size() << " objects" << std::endl;
+        }
     }
 
     // Continue with original postprocessing logic
-    for (auto frameInfo : frames) {
+    for (auto frameInfo : frameInfos) {
         if (m_pfnDetectFinish) {
             m_pfnDetectFinish(frameInfo);
         }
@@ -622,6 +610,10 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frames) {
         if (m_nextInferPipe != nullptr) {
             m_nextInferPipe->push_frame(&frameInfo);
         } else {
+            //Free input/output
+            freeHostMemory(frameInfo.netInputs);
+            freeHostMemory(frameInfo.netOutputs);
+
             // Stop pipeline
             av_packet_unref(frameInfo.pkt);
             av_packet_free(&frameInfo.pkt);
@@ -635,12 +627,6 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frames) {
 }
 
 void YoloDetector::cleanup() {
-    // Free host memory (following yolov5_ref.cpp pattern)
-    freeHostMemory(m_netInputs[0]);
-    freeHostMemory(m_netInputs[1]);
-    freeHostMemory(m_netOutputs[0]);
-    freeHostMemory(m_netOutputs[1]);
-    
     if (m_engine) {
         TopsInference::release_engine(m_engine);
         m_engine = nullptr;

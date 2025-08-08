@@ -11,6 +11,7 @@ option(USE_TOPS_FFMPEG "use Tops ffmpeg" OFF)
 #set(CMAKE_CXX_FLAGS -fsanitize=address ${CMAKE_CXX_FLAGS})
 
 # Find required packages
+set(CMAKE_PREFIX_PATH $ENV{HOME}/buildroot ${CMAKE_PREFIX_PATH})
 find_package(OpenCV REQUIRED)
 
 if (NOT USE_DUMMY_DETECTOR)
@@ -59,17 +60,20 @@ if (NOT USE_TOPS_FFMPEG)
     set(FFMPEG_LINK_LIBS PkgConfig::FFMPEG)
 
 else()
-    set(FFMPEG_INCLUDE_DIRS /home/jovyan/buildroot/include)
-    set(FFMPEG_LINK_DIRS /opt/tops/lib)
-    set(FFMPEG_LINK_LIBS avcodec avformat avfilter avutil swscale avdevice)
+    set(FFMPEG_INCLUDE_DIRS $ENV{HOME}/buildroot/include)
+    set(FFMPEG_LINK_DIRS /opt/tops/lib $ENV{HOME}/enrigin_sdk/opt/tops/lib)
+    set(FFMPEG_LINK_LIBS avcodec avformat avfilter avutil swscale swresample avdevice)
 endif()
 
-include_directories(
-        ${CMAKE_CURRENT_SOURCE_DIR}/../otl
+set(MULTISTREAMER_INC_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../otl
         ${CMAKE_CURRENT_SOURCE_DIR}/include
-	${TOPSINFERENCE_INCLUDE_DIR}/include
-	${TOPS_INCLUDE_DIR}
-	${FFMPEG_INCLUDE_DIRS}
+        ${TOPSINFERENCE_INCLUDE_DIR}/include
+        ${TOPS_INCLUDE_DIR}
+        ${FFMPEG_INCLUDE_DIRS}
+)
+message(STATUS "MULTISTREAMER_INC_DIRS=${MULTISTREAMER_INC_DIRS}")
+include_directories(
+	${MULTISTREAMER_INC_DIRS}
 )
 
 link_directories(${FFMPEG_LINK_DIRS})

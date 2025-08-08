@@ -20,6 +20,7 @@ public:
     YoloDetector(int devId = 0);
     virtual ~YoloDetector();
 public:
+    int initialize() override;
     int preprocess(std::vector<FrameInfo> &frames) override;
     int forward(std::vector<FrameInfo> &frames) override;
     int postprocess(std::vector<FrameInfo> &frames) override;
@@ -28,15 +29,11 @@ private:
     // TopsInference components (following yolov5_ref.cpp pattern)
     TopsInference::IEngine* m_engine;
     TopsInference::handler_t m_handler;
-    std::vector<void*> m_netInputs[2];
-    std::vector<void*> m_netOutputs[2];
-    int m_currentBuffer;
 
     // Model parameters
     int m_deviceId;
     int m_inputWidth;
     int m_inputHeight;
-    int m_numClasses;
     float m_confThreshold;
     float m_nmsThreshold;
 
@@ -63,8 +60,6 @@ private:
     // 互斥锁用于多线程同步
     std::mutex m_mutex;
 
-    // Helper methods (following yolov5_ref.cpp pattern)
-    bool initializeEngine(const std::string& modelPath);
     std::vector<ShapeInfo> getInputsShape();
     std::vector<ShapeInfo> getOutputsShape();
     std::vector<void*> allocHostMemory(std::vector<ShapeInfo> &shapes_info, int times, bool verbose);

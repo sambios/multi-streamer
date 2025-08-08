@@ -2,6 +2,9 @@
 #include <iostream>
 #include <chrono>
 
+#include "otl_string.h"
+#include "stream_sei.h"
+
 Streamer::Streamer(DeviceManagerPtr ptr) {
     m_fpsStat = otl::StatTool::create(5);
     m_detectorManager = ptr;
@@ -55,8 +58,36 @@ bool Streamer::start() {
     //------- Delegate callback --------//
     m_detector->set_detected_callback([](FrameInfo& frameInfo)
     {
-        if (frameInfo.streamer && frameInfo.streamer->m_output) {
-            // 检测完毕，根据检测结果，上传视频流
+        if (frameInfo.streamer && frameInfo.streamer->m_output)
+        {
+            if (frameInfo.detection.size() > 0)
+            {
+                auto detect_bbuf = frameInfo.detection.toByteBuffer();
+                auto base64_str = otl::base64Enc(detect_bbuf->data(), detect_bbuf->size());
+                AVPacket* sei_pkt = av_packet_alloc();
+
+                av_packet_copy_props(sei_pkt, frameInfo.pkt);
+
+                //AVCodecID codec_id = frameInfo.streamer->get_video_codec_id();
+
+                //if (codec_id == AV_CODEC_ID_H264)
+                {
+                    auto packet_size = otl::h264SeiCalcPacketSize(base64_str.length());
+                    AVBufferRef* buf = av_buffer_alloc(packet_size << 1);
+                    //assert(packet_size < 16384);
+                    int real_size = otl::h264SeiPacketWrite(buf->data, true, (uint8_t*)base64_str.data(),
+                                                            base64_str.length());
+                    sei_pkt->data = buf->data;
+                    sei_pkt->size = real_size;
+                    sei_pkt->buf = buf;
+                }
+
+                frameInfo.streamer->m_output->inputPacket(sei_pkt);
+                frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
+
+                av_packet_unref(sei_pkt);
+                av_packet_free(&sei_pkt);
+            }
             frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
         }
     });
