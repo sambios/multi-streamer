@@ -49,6 +49,7 @@ int main(int argc, char* argv[]) {
     // 从 JSON 对象中提取配置信息
     int channelId = 0;
     int card_nums = configsJson["dev_num"].get<int>();
+    bool detect_enabled = configsJson["detect_enabled"].get<bool>();
 
     for (int devId = 0; devId < card_nums; ++devId) {
 
@@ -98,6 +99,7 @@ int main(int argc, char* argv[]) {
                 config.inputUrl = inputUrl;
                 config.frameDropInterval = frameDropInterval;
                 config.decodeId = OTL_MAKE_INT32(devId, i % 2);
+                config.detectEnabled = detect_enabled;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);

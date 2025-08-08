@@ -1,11 +1,12 @@
 {
   "dev_num": 3,
+  "detect_enabled" : false,
   "configs_dev0": [
     {
       "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
-      "output_url_base": "udp://10.41.196.166:9000",
-      "client_count":1
+      "output_url_base": "udp://127.0.0.1:9000",
+      "client_count":4
     }
   ],
 
@@ -13,7 +14,7 @@
     {
       "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
-      "output_url_base": "udp://10.41.196.166:9100",
+      "output_url_base": "udp://127.0.0.1:9100",
       "client_count":1
     }
   ],
@@ -21,7 +22,7 @@
     {
       "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
-      "output_url_base": "udp://10.41.196.166:9100",
+      "output_url_base": "udp://127.0.0.1:9100",
       "client_count":1
     }
   ]

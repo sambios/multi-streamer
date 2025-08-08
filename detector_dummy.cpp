@@ -15,6 +15,10 @@
         std::cout << "DummyDetector dtor" << std::endl;
     }
 
+    int DummyDetector::initialize() {
+        return 0;
+    }
+
     int DummyDetector::preprocess(std::vector<FrameInfo> &frames) {
         std::cout << "DummyDetector::preprocess:thread_id = " << std::this_thread::get_id() << std::endl;
         std::cout << __FUNCTION__ << ":" << __LINE__ << std::endl;

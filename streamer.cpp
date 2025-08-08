@@ -20,6 +20,7 @@ bool Streamer::init(const Config& config) {
     m_decoder = std::make_unique<otl::StreamDecoder>(config.decodeId);
     m_decoder->setObserver(this);
 
+
     m_detector = m_detectorManager->getDetector(config.devId);
     m_inferPipe = m_detectorManager->getInferPipe(config.devId);
 
@@ -111,16 +112,22 @@ void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
     //1. statistic
     m_fpsStat->update();
 
-    // 2. Post Frame to queue
-    FrameInfo frame;
-    frame.pkt = av_packet_alloc();
-    av_packet_copy_props(frame.pkt, pkt);
-    av_packet_ref(frame.pkt, pkt);
+    if (m_config.detectEnabled) {
+        // 2. Post Frame to queue
+        FrameInfo frame;
+        frame.pkt = av_packet_alloc();
+        av_packet_copy_props(frame.pkt, pkt);
+        av_packet_ref(frame.pkt, pkt);
 
-    frame.frame = av_frame_alloc();
-    av_frame_ref(frame.frame, pFrame);
+        frame.frame = av_frame_alloc();
+        av_frame_ref(frame.frame, pFrame);
 
-    frame.streamer = get_shared_ptr();
+        frame.streamer = get_shared_ptr();
 
-    m_inferPipe->push_frame(&frame);
+        m_inferPipe->push_frame(&frame);
+    }else {
+        //3. directly output
+        if (m_output)
+            m_output->inputPacket(pkt);
+    }
 }

@@ -13,6 +13,7 @@ public:
     DummyDetector(int devId = 0);
     virtual ~DummyDetector();
 public:
+    int initialize() override;
     int preprocess(std::vector<FrameInfo> &frames) override;
     int forward(std::vector<FrameInfo> &frames) override;
     int postprocess(std::vector<FrameInfo> &frames) override;
