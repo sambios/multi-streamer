@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
 
         // 读取卡的运行配置
         std::vector<Streamer::Config> configs;
-        std::string devNodeStr = otl::format("configs_dev%d", devId);
+        std::string devNodeStr = otl::formatString("configs_dev%d", devId);
         
         for (const auto& configObj : configsJson[devNodeStr]) {
             // 获取基础配置
@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
             total += stats.fps;
         }
 
-        std::cout << otl::format("ch-num=%d FPS=%.2f\n", streamers.size(), total);
+        std::cout << otl::formatString("ch-num=%d FPS=%.2f\n", streamers.size(), total);
         std::cout.flush();
     }, -1, &timerId);
 

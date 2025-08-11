@@ -8,6 +8,8 @@
 #include <condition_variable>
 #include <deque>
 #include <opencv2/opencv.hpp>
+#include <cstring>   // strlen
+#include <strings.h> // strcasecmp, strncasecmp
 
 #include "otl_timer.h"
 #include "stream_decode_hw.h"
@@ -59,6 +61,32 @@ public:
 
     int getDevId() {
         return m_config.devId;
+    }
+
+    // Expose video codec id for decisions in callbacks
+    AVCodecID get_video_codec_id() {
+        return m_decoder ? m_decoder->getVideoCodecId() : AV_CODEC_ID_NONE;
+    }
+
+    // Decide whether output prefers AVCC (length-prefixed) rather than Annex B.
+    // Heuristic based on output URL/extension: MP4/MOV/FLV/RTMP typically use AVCC.
+    bool preferAVCC() const {
+        auto &url = m_config.outputUrl;
+        auto ends_with = [&](const char* suf){
+            size_t n = strlen(suf);
+            if (url.size() < n) return false;
+            return strcasecmp(url.c_str() + url.size() - n, suf) == 0;
+        };
+        auto starts_with = [&](const char* pre){
+            size_t n = strlen(pre);
+            if (url.size() < n) return false;
+            return strncasecmp(url.c_str(), pre, n) == 0;
+        };
+        if (ends_with(".mp4") || ends_with(".mov") || ends_with(".m4v") ||
+            ends_with(".flv") || starts_with("rtmp://")) {
+            return true;
+        }
+        return false; // default to Annex B (e.g., MPEG-TS)
     }
 
 protected:

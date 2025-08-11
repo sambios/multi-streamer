@@ -1,6 +1,6 @@
 {
-  "dev_num": 3,
-  "detect_enabled" : false,
+  "dev_num": 1,
+  "detect_enabled" : true,
   "configs_dev0": [
     {
       "input_url": "~/test_videos/test_car_person_1080P.h264",

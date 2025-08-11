@@ -69,31 +69,73 @@ bool Streamer::start() {
             {
                 auto detect_bbuf = frameInfo.detection.toByteBuffer();
                 auto base64_str = otl::base64Enc(detect_bbuf->data(), detect_bbuf->size());
+                // std::cout << "SEI:" << base64_str << std::endl;
+                // Build SEI NAL unit buffer
                 AVPacket* sei_pkt = av_packet_alloc();
-
                 av_packet_copy_props(sei_pkt, frameInfo.pkt);
+                // Decide codec and packaging (Annex B vs AVCC)
+                AVCodecID codec_id = frameInfo.streamer->get_video_codec_id();
+                bool isAnnexb = !frameInfo.streamer->preferAVCC();
 
-                //AVCodecID codec_id = frameInfo.streamer->get_video_codec_id();
-
-                //if (codec_id == AV_CODEC_ID_H264)
+                if (codec_id == AV_CODEC_ID_H264)
                 {
-                    auto packet_size = otl::h264SeiCalcPacketSize(base64_str.length());
-                    AVBufferRef* buf = av_buffer_alloc(packet_size << 1);
-                    //assert(packet_size < 16384);
-                    int real_size = otl::h264SeiPacketWrite(buf->data, true, (uint8_t*)base64_str.data(),
-                                                            base64_str.length());
+                    auto packet_size = otl::h264SeiCalcPacketSize((uint32_t)base64_str.length(), isAnnexb, 4);
+                    AVBufferRef* buf = av_buffer_alloc(packet_size);
+                    int real_size = otl::h264SeiPacketWrite(buf->data, isAnnexb, (uint8_t*)base64_str.data(),
+                                                            (uint32_t)base64_str.length());
                     sei_pkt->data = buf->data;
                     sei_pkt->size = real_size;
                     sei_pkt->buf = buf;
                 }
+                else if (codec_id == AV_CODEC_ID_H265)
+                {
+                    // Use H.264 calc as a close upper bound, allocate a bit more for 2-byte HEVC header
+                    auto base_size = otl::h264SeiCalcPacketSize((uint32_t)base64_str.length(), isAnnexb, 4);
+                    AVBufferRef* buf = av_buffer_alloc(base_size + 16);
+                    int real_size = otl::h265SeiPacketWrite(buf->data, isAnnexb, (uint8_t*)base64_str.data(),
+                                                            (uint32_t)base64_str.length());
+                    sei_pkt->data = buf->data;
+                    sei_pkt->size = real_size;
+                    sei_pkt->buf = buf;
+                }
+                else
+                {
+                    // Unknown codec; pass through original packet only
+                    av_packet_unref(sei_pkt);
+                    av_packet_free(&sei_pkt);
+                    frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
+                    return;
+                }
 
-                frameInfo.streamer->m_output->inputPacket(sei_pkt);
-                frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
+                // ensure stream index matches
+                sei_pkt->stream_index = frameInfo.pkt->stream_index;
+
+                // Merge SEI and original packet into a single packet (recommended for AVCC/MP4/FLV/RTMP).
+                // For Annex B, merging is also safe and keeps SEI preceding the corresponding VCL NAL.
+                AVPacket *merged = av_packet_alloc();
+                av_packet_copy_props(merged, frameInfo.pkt);
+                merged->stream_index = frameInfo.pkt->stream_index;
+
+                // Allocate combined buffer: [SEI][Original]
+                int merged_size = sei_pkt->size + frameInfo.pkt->size;
+                AVBufferRef *merged_buf = av_buffer_alloc(merged_size);
+                memcpy(merged_buf->data, sei_pkt->data, sei_pkt->size);
+                memcpy(merged_buf->data + sei_pkt->size, frameInfo.pkt->data, frameInfo.pkt->size);
+                merged->data = merged_buf->data;
+                merged->size = merged_size;
+                merged->buf = merged_buf;
+
+                frameInfo.streamer->m_output->inputPacket(merged);
 
                 av_packet_unref(sei_pkt);
                 av_packet_free(&sei_pkt);
+                av_packet_unref(merged);
+                av_packet_free(&merged);
+                // Original pkt will be sent only via merged path
+                return;
+            }else {
+                frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
             }
-            frameInfo.streamer->m_output->inputPacket(frameInfo.pkt);
         }
     });
 
