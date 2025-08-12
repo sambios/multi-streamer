@@ -16,6 +16,7 @@
 #include "stream_pusher.h"
 #include "device_manager.h"
 #include "detector.h"
+#include "stream_encoder.h"
 
 
 class Streamer : public otl::StreamDecoderEvents, public std::enable_shared_from_this<Streamer>{
@@ -28,6 +29,7 @@ public:
         int frameDropInterval = 0;   // 0 = no frame drop
         std::string outputUrl;
         bool detectEnabled;
+        bool encodeEnabled;
     };
 
     otl::StatToolPtr m_fpsStat;
@@ -102,5 +104,10 @@ private:
     DeviceManagerPtr m_detectorManager;
     mutable std::mutex m_mutex;
     Stats m_stats;
+    std::unique_ptr<otl::StreamEncoder> m_encoder;
+    // Encoder timing for PTS generation
+    AVRational m_encTimeBase{1, 90000};
+    AVRational m_encFrameRate{30, 1};
+    int64_t m_nextPts{0};
 
 };

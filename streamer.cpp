@@ -1,9 +1,39 @@
 #include "streamer.h"
 #include <iostream>
 #include <chrono>
+#include <vector>
+#include <cstring>
+#include <algorithm>
 
 #include "otl_string.h"
 #include "stream_sei.h"
+extern "C" {
+#include <libavutil/rational.h>
+#include <libavutil/avutil.h>
+}
+
+// Simple overlay utilities for YUV420P frames
+static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static void draw_rect_y(uint8_t* y, int w, int h, int linesize, int x1, int y1, int x2, int y2, int thickness, uint8_t yval)
+{
+    x1 = clampi(x1, 0, w - 1); x2 = clampi(x2, 0, w - 1);
+    y1 = clampi(y1, 0, h - 1); y2 = clampi(y2, 0, h - 1);
+    if (x1 > x2) std::swap(x1, x2);
+    if (y1 > y2) std::swap(y1, y2);
+    for (int t = 0; t < thickness; ++t) {
+        int yt1 = clampi(y1 + t, 0, h - 1);
+        int yt2 = clampi(y2 - t, 0, h - 1);
+        // top and bottom
+        memset(y + yt1 * linesize + x1, yval, x2 - x1 + 1);
+        memset(y + yt2 * linesize + x1, yval, x2 - x1 + 1);
+        // left and right
+        for (int yy = y1; yy <= y2; ++yy) {
+            int yyy = clampi(yy, 0, h - 1);
+            if (x1 + t < w) y[yyy * linesize + x1 + t] = yval;
+            if (x2 - t >= 0) y[yyy * linesize + x2 - t] = yval;
+        }
+    }
+}
 
 Streamer::Streamer(DeviceManagerPtr ptr) {
     m_fpsStat = otl::StatTool::create(5);
@@ -24,7 +54,25 @@ bool Streamer::init(const Config& config) {
     m_detector = m_detectorManager->getDetector(config.devId);
     m_inferPipe = m_detectorManager->getInferPipe(config.devId);
 
-
+    if (m_config.encodeEnabled) {
+        std::string codecName = "mjpeg";
+        m_encoder = otl::CreateStreamEncoder(codecName);
+        otl::EncodeParam p;
+        p.codecName = codecName;
+        p.width = 1280; p.height = 720;
+        p.timeBase = {1, 90000};
+        p.frameRate = {30, 1};
+        p.pixFmt = AV_PIX_FMT_YUVJ420P;
+        p.gopSize = 60;
+        p.maxBFrames = 0;
+        p.bitRate = 3'000'000;
+        p.preferHardware = true;
+        m_encoder->init(&p);
+        // set encoder timing for PTS generation
+        m_encTimeBase = m_encoder->getTimeBase();
+        m_encFrameRate = p.frameRate;
+        m_nextPts = 0;
+    }
 
     return true;
 }
@@ -32,6 +80,16 @@ bool Streamer::init(const Config& config) {
 bool Streamer::start() {
     if (m_running) {
         return false;
+    }
+
+    // If we will encode, prepare the output sink early with explicit codec parameters from encoder
+    if (m_config.encodeEnabled && m_output == nullptr && m_encoder) {
+        const AVCodecParameters* cpar = m_encoder->getCodecParameters();
+        if (cpar) {
+            AVRational encTb = m_encoder->getTimeBase();
+            m_output = std::make_unique<otl::FfmpegOutputer>();
+            m_output->openOutputStreamWithCodec(m_config.outputUrl, cpar, encTb);
+        }
     }
 
     AVDictionary *opts=NULL;
@@ -46,9 +104,12 @@ bool Streamer::start() {
     //---- stream operations -----//
     m_decoder->setAvformatOpenedCallback([this](const AVFormatContext* ifmtCtx)
     {
-        if (m_output == nullptr) {
-            m_output = std::make_unique<otl::FfmpegOutputer>();
-            m_output->openOutputStream(m_config.outputUrl, ifmtCtx);
+        // For pass-through (no re-encode), derive output stream from input format
+        if (!m_config.encodeEnabled) {
+            if (m_output == nullptr) {
+                m_output = std::make_unique<otl::FfmpegOutputer>();
+                m_output->openOutputStream(m_config.outputUrl, ifmtCtx);
+            }
         }
     });
 
@@ -65,6 +126,58 @@ bool Streamer::start() {
     {
         if (frameInfo.streamer && frameInfo.streamer->m_output)
         {
+            if (frameInfo.streamer->m_config.encodeEnabled) {
+                // 1) Overlay detection bboxes on Y plane (YUV420P/YUVJ420P) before encoding
+                if (frameInfo.frame &&
+                    (frameInfo.frame->format == AV_PIX_FMT_YUV420P || frameInfo.frame->format == AV_PIX_FMT_YUVJ420P) &&
+                    !frameInfo.detection.bboxes().empty()) {
+                    uint8_t* y = frameInfo.frame->data[0];
+                    int ls = frameInfo.frame->linesize[0];
+                    int W = frameInfo.frame->width;
+                    int H = frameInfo.frame->height;
+                    for (const otl::Bbox& b : frameInfo.detection.bboxes()) {
+                        // If coords look normalized (<=1), scale to pixels
+                        auto norm = (b.x2 <= 1.0f && b.y2 <= 1.0f);
+                        int x1 = norm ? (int)(b.x1 * W) : (int)b.x1;
+                        int y1 = norm ? (int)(b.y1 * H) : (int)b.y1;
+                        int x2 = norm ? (int)(b.x2 * W) : (int)b.x2;
+                        int y2 = norm ? (int)(b.y2 * H) : (int)b.y2;
+                        draw_rect_y(y, W, H, ls, x1, y1, x2, y2, 2, 235);
+                    }
+                }
+
+                // 2) Assign monotonically increasing PTS in encoder time base and encode
+                if (frameInfo.frame) {
+                    int64_t step = av_rescale_q(1, av_inv_q(frameInfo.streamer->m_encFrameRate), frameInfo.streamer->m_encTimeBase);
+                    if (step <= 0) step = 1;
+                    if (frameInfo.frame->pts == AV_NOPTS_VALUE || frameInfo.frame->pts < frameInfo.streamer->m_nextPts) {
+                        frameInfo.frame->pts = frameInfo.streamer->m_nextPts;
+                    }
+                    frameInfo.streamer->m_nextPts = frameInfo.frame->pts + step;
+                }
+                // Encode frame to packets via vector API
+                std::vector<AVPacket*> pkts;
+                auto ret = frameInfo.streamer->m_encoder->encode(frameInfo.frame, pkts);
+                if (ret == 0) {
+                    if (!frameInfo.streamer->m_output) {
+                        const AVCodecParameters* cpar = frameInfo.streamer->m_encoder->getCodecParameters();
+                        if (cpar) {
+                            AVRational encTb = frameInfo.streamer->m_encoder->getTimeBase();
+                            frameInfo.streamer->m_output = std::make_unique<otl::FfmpegOutputer>();
+                            frameInfo.streamer->m_output->openOutputStreamWithCodec(frameInfo.streamer->m_config.outputUrl, cpar, encTb);
+                        }
+                    }
+                    for (AVPacket* out : pkts) {
+                        if (!out) continue;
+                        if (out->stream_index < 0) out->stream_index = 0; // single-stream
+                        frameInfo.streamer->m_output->inputPacket(out);
+                        frameInfo.streamer->m_encoder->freePacket(out);
+                    }
+                }
+                // When encoding path is used, we skip SEI injection (bbox already meant to be fused into image)
+                return;
+            }
+
             if (frameInfo.detection.size() > 0)
             {
                 auto detect_bbuf = frameInfo.detection.toByteBuffer();

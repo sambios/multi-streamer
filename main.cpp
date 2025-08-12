@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <atomic>
 #include <fstream>
+#include <filesystem>
 
 
 #include <nlohmann/json.hpp>
@@ -20,6 +21,11 @@ static void signalHandler(int signum) {
 }
 
 int main(int argc, char* argv[]) {
+
+    otl::log::LogConfig logConfig;
+    logConfig.enableConsole = true;
+    logConfig.level = otl::log::LOG_TRACE;
+    otl::log::init(logConfig);
 
     otl::TimerQueuePtr timerQueue = otl::TimerQueue::create();
 
@@ -100,6 +106,7 @@ int main(int argc, char* argv[]) {
                 config.frameDropInterval = frameDropInterval;
                 config.decodeId = OTL_MAKE_INT32(devId, i % 2);
                 config.detectEnabled = detect_enabled;
+                config.encodeEnabled = true;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);
