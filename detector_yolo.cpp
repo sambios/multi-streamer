@@ -585,8 +585,11 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
                 result_box.width = std::max(0, std::min(result_box.width, originalWidth - result_box.x));
                 result_box.height = std::max(0, std::min(result_box.height, originalHeight - result_box.y));
 
-                Bbox det_bbox;
-                det_bbox.rect = result_box;
+                otl::Bbox det_bbox;
+                det_bbox.x1 = result_box.x;
+                det_bbox.y1 = result_box.y;
+                det_bbox.x2 = result_box.x + result_box.width;
+                det_bbox.y2 = result_box.y + result_box.height;
                 det_bbox.confidence = confidence[id];
                 det_bbox.classId = class_id[id];
                 frameInfo.detection.push_back(det_bbox);

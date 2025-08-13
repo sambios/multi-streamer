@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
                 config.frameDropInterval = frameDropInterval;
                 config.decodeId = OTL_MAKE_INT32(devId, i % 2);
                 config.detectEnabled = detect_enabled;
-                config.encodeEnabled = true;
+                config.encodeEnabled = false;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);
