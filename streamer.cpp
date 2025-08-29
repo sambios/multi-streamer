@@ -51,18 +51,18 @@ bool Streamer::init(const Config& config) {
     m_decoder->setObserver(this);
 
 
-    m_detector = m_detectorManager->getDetector(config.devId);
-    m_inferPipe = m_detectorManager->getInferPipe(config.devId);
+    m_detector = m_detectorManager->getDetector(config.devId, config.modelPath);
+    m_inferPipe = m_detectorManager->getInferPipe(config.devId, config.modelPath);
 
     if (m_config.encodeEnabled) {
-        std::string codecName = "mjpeg";
+        std::string codecName = "h264";
         m_encoder = otl::CreateStreamEncoder(codecName);
         otl::EncodeParam p;
         p.codecName = codecName;
         p.width = 1280; p.height = 720;
         p.timeBase = {1, 90000};
         p.frameRate = {30, 1};
-        p.pixFmt = AV_PIX_FMT_YUVJ420P;
+        p.pixFmt = AV_PIX_FMT_YUV420P;
         p.gopSize = 60;
         p.maxBFrames = 0;
         p.bitRate = 3'000'000;
@@ -94,7 +94,7 @@ bool Streamer::start() {
 
     AVDictionary *opts=NULL;
     //av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
-    //av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
+    av_dict_set(&opts, "pp_set", "1920x1080:0:0:3840x2160", 0);
     if (m_decoder->openStream(m_config.inputUrl, true,  opts) != 0) {
         std::cout << "OpenStream " << m_config.inputUrl << " failed!" << std::endl;
         return false;
@@ -182,7 +182,7 @@ bool Streamer::start() {
             {
                 auto detect_bbuf = frameInfo.detection.toByteBuffer();
                 auto base64_str = otl::base64Enc(detect_bbuf->data(), detect_bbuf->size());
-                // std::cout << "SEI:" << base64_str << std::endl;
+                //std::cout << "SEI:" << base64_str << std::endl;
                 // Build SEI NAL unit buffer
                 AVPacket* sei_pkt = av_packet_alloc();
                 av_packet_copy_props(sei_pkt, frameInfo.pkt);
@@ -272,6 +272,10 @@ void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {
     m_fpsStat->update();
 
     if (m_config.detectEnabled) {
+        if (pFrame->width == 0 || pFrame->height == 0)
+        {
+            std::cout << "ERROR: width=height=0\n" << std::endl;
+        }
         // 2. Post Frame to queue
         FrameInfo frame;
         frame.pkt = av_packet_alloc();

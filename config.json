@@ -1,12 +1,13 @@
 {
-  "dev_num": 2,
+  "dev_num": 1,
   "detect_enabled" : true,
+  "model_path": "~/clients/main/models/yolo11n.onnx",
   "configs_dev0": [
     {
-      "input_url": "~/test_videos/test_car_person_1080P.h264",
+      "input_url":  "~/test_videos/cars_4k.h264",
       "frame_drop_interval": 2,
       "output_url_base": "udp://127.0.0.1:9000",
-      "client_count":4
+      "client_count":5
     }
   ],
 
@@ -15,7 +16,7 @@
       "input_url": "~/test_videos/test_car_person_1080P.h264",
       "frame_drop_interval": 2,
       "output_url_base": "udp://127.0.0.1:9100",
-      "client_count":4
+      "client_count":5
     }
   ],
    "configs_dev2": [

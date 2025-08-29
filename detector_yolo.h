@@ -17,7 +17,7 @@
 class YoloDetector : public Detector
 {
 public:
-    YoloDetector(int devId = 0);
+    YoloDetector(int devId = 0, std::string modelPath = "");
     virtual ~YoloDetector();
 public:
     int initialize() override;
@@ -62,8 +62,45 @@ private:
 
     std::vector<ShapeInfo> getInputsShape();
     std::vector<ShapeInfo> getOutputsShape();
-    std::vector<void*> allocHostMemory(std::vector<ShapeInfo> &shapes_info, int times, bool verbose);
-    void freeHostMemory(std::vector<void*> &datum);
+    void allocHostMemory(FrameInfo &info, bool isInput, std::vector<ShapeInfo> &shapes_info, int times, bool verbose);
+    void freeHostMemory(FrameInfo &info, bool isInput);
+
+    void syncInputs(FrameInfo& info, bool isH2D = true)
+    {
+        if (isH2D)
+        {
+            for (int i = 0;i < info.netHostInputs.size(); ++i)
+            {
+                auto ret = topsMemcpyHtoD(info.netDeviceInputs[i], info.netHostInputs[i], info.netInputsSize[i]);
+                assert(topsSuccess == ret);
+            }
+        }else {
+            for (int i = 0;i < info.netHostInputs.size(); ++i)
+            {
+                auto ret = topsMemcpyDtoH(info.netHostInputs[i], info.netDeviceInputs[i], info.netInputsSize[i]);
+                assert(topsSuccess == ret);
+            }
+        }
+    }
+
+    void syncOutputs(FrameInfo& info, bool isD2H = true)
+    {
+        if (isD2H)
+        {
+            for (int i = 0;i < info.netHostOutputs.size(); ++i)
+            {
+                auto ret = topsMemcpyDtoH(info.netHostOutputs[i], info.netDeviceOutputs[i], info.netOutputsSize[i]);
+                assert(topsSuccess == ret);
+            }
+        }else {
+            for (int i = 0;i < info.netHostOutputs.size(); ++i)
+            {
+                auto ret = topsMemcpyHtoD(info.netDeviceOutputs[i], info.netHostInputs[i], info.netOutputsSize[i]);
+                assert(topsSuccess == ret);
+            }
+        }
+    }
+
     int get_dtype_size(TopsInference::DataType dtype);
     void cleanup();
 };

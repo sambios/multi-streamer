@@ -30,6 +30,7 @@ public:
         std::string outputUrl;
         bool detectEnabled;
         bool encodeEnabled;
+        std::string modelPath;
     };
 
     otl::StatToolPtr m_fpsStat;

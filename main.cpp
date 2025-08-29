@@ -56,6 +56,7 @@ int main(int argc, char* argv[]) {
     int channelId = 0;
     int card_nums = configsJson["dev_num"].get<int>();
     bool detect_enabled = configsJson["detect_enabled"].get<bool>();
+    std::string model_path = otl::replaceHomeDirectory(configsJson["model_path"].get<std::string>());
 
     for (int devId = 0; devId < card_nums; ++devId) {
 
@@ -100,13 +101,14 @@ int main(int argc, char* argv[]) {
             // 根据重复次数创建多个配置
             for (int i = 0; i < repeatCount; ++i) {
                 Streamer::Config config;
-                config.devId = devId;
+                config.devId = OTL_MAKE_INT32(devId, i);
                 config.channelId = channelId++;
                 config.inputUrl = inputUrl;
                 config.frameDropInterval = frameDropInterval;
                 config.decodeId = OTL_MAKE_INT32(devId, i % 2);
                 config.detectEnabled = detect_enabled;
                 config.encodeEnabled = false;
+                config.modelPath = model_path;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);

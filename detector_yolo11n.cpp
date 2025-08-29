@@ -15,7 +15,7 @@
 #include <numeric>
 #include "otl.h"
 #include "otl_ffmpeg.h"
-
+#define TOPS_CHECK(func) {auto ret = func; assert(topsSuccess == ret);}
 // COCO class labels mapping (from yolov5_ref.cpp)
 std::map<int, std::string> label_map = {
     {0, "person"},         {1, "bicycle"},       {2, "car"},
@@ -119,9 +119,9 @@ bool nonMaximumSuppression(const std::vector<cv::Rect> rects,
     return true;
 }
 
-YoloDetector::YoloDetector(int devId) : m_deviceId(devId), m_engine(nullptr),
+YoloDetector::YoloDetector(int devId, std::string modelPath) : m_deviceId(OTL_GET_INT32_HIGH16(devId)), m_engine(nullptr),
                                        m_confThreshold(0.45f), m_nmsThreshold(0.25f){
-
+   m_modelPath = modelPath;
 }
 
 YoloDetector::~YoloDetector() {
@@ -195,23 +195,55 @@ std::vector<YoloDetector::ShapeInfo> YoloDetector::getOutputsShape() {
     return shapes_info;
 }
 
-std::vector<void*> YoloDetector::allocHostMemory(std::vector<ShapeInfo> &shapes_info, int times, bool verbose) {
+void YoloDetector::allocHostMemory(FrameInfo &info, bool isInput, std::vector<ShapeInfo> &shapes_info, int times, bool verbose) {
     std::vector<void*> datum;
     for (auto &shape_info : shapes_info) {
-        char *data = new char[shape_info.mem_size * times];
-        datum.push_back((void*)data);
-        if (verbose) {
-            std::cout << "Allocated memory size: " << shape_info.mem_size * times << std::endl;
+        int dataSize = shape_info.mem_size * times;
+        char *data = new char[dataSize];
+        if (isInput)
+        {
+            info.netHostInputs.push_back((void*)data);
+            info.netInputsSize.push_back(dataSize);
         }
+        else
+        {
+            info.netHostOutputs.push_back(data);
+            info.netOutputsSize.push_back(dataSize);
+        }
+
+        if (verbose) {
+            std::cout << "Allocated host memory size: " << shape_info.mem_size * times << std::endl;
+        }
+
+        //Device memory
+        topsDevice_t *devMem = nullptr;
+        auto ret = topsMalloc(&devMem, shape_info.mem_size * times);
+        assert(ret == topsSuccess);
+        if (isInput) info.netDeviceInputs.push_back(devMem);
+        else info.netDeviceOutputs.push_back(devMem);
     }
-    return datum;
 }
 
-void YoloDetector::freeHostMemory(std::vector<void*> &datum) {
-    for (auto &data : datum) {
-        delete[] (char*)data;
+void YoloDetector::freeHostMemory(FrameInfo &info, bool isInput) {
+    if (isInput)
+    {
+        for (auto &data : info.netHostInputs) {
+            delete[] (char*)data;
+        }
+        for (auto data : info.netDeviceInputs) {
+            TOPS_CHECK(topsFree(data));
+        }
+        info.netHostInputs.clear();
+    }else
+    {
+        for (auto &data : info.netHostOutputs) {
+            delete[] (char*)data;
+        }
+        for (auto data : info.netDeviceOutputs) {
+            TOPS_CHECK(topsFree(data));
+        }
+        info.netHostOutputs.clear();
     }
-    datum.clear();
 }
 
 int YoloDetector::initialize() {
@@ -229,12 +261,9 @@ int YoloDetector::initialize() {
             return -1;
         }
 
-        // Initialize engine with default model path
-        std::string modelPath = "yolov5s.onnx"; // Default model path
-
         // Generate .exec file path from ONNX model path
-        fs::path onnxPath(modelPath);
-        std::string execPath = onnxPath.filename().string() + ".exec";
+        fs::path onnxPath(m_modelPath);
+        std::string execPath = onnxPath.string() + ".exec";
         
         std::cout << "Looking for pre-built engine: " << execPath << std::endl;
         
@@ -262,7 +291,7 @@ int YoloDetector::initialize() {
             std::cout << "Successfully loaded pre-built engine from: " << execPath << std::endl;
             
         } else {
-            std::cout << "Pre-built engine not found, building from ONNX model: " << modelPath << std::endl;
+            std::cout << "Pre-built engine not found, building from ONNX model: " << m_modelPath << std::endl;
             
             // Create parser and read model
             TopsInference::IParser* parser = TopsInference::create_parser(TopsInference::TIF_ONNX);
@@ -271,11 +300,11 @@ int YoloDetector::initialize() {
                 return -1;
             }
 
-            TopsInference::INetwork* network = parser->readModel(modelPath.c_str());
+            TopsInference::INetwork* network = parser->readModel(m_modelPath.c_str());
             if (!network) {
-                std::cerr << "Failed to read model: " << modelPath << std::endl;
+                std::cerr << "Failed to read model: " << m_modelPath << std::endl;
                 TopsInference::release_parser(parser);
-                return -1;
+                exit(-1);
             }
 
             // Create optimizer and build engine
@@ -286,6 +315,9 @@ int YoloDetector::initialize() {
                 TopsInference::release_parser(parser);
                 return -1;
             }
+
+            // 指定模型推理为FP16和FP32混合精度
+            optimizer->getConfig()->setBuildFlag(TopsInference::BuildFlag::TIF_KTYPE_MIX_FP16);
 
             std::cout << "Building engine from ONNX model..." << std::endl;
             m_engine = optimizer->build(network);
@@ -344,7 +376,7 @@ int YoloDetector::initialize() {
             std::cout << "] mem_size: " << shape.mem_size << std::endl;
         }
 
-        std::cout << "YOLOv5 engine initialized successfully" << std::endl;
+        std::cout << "YOLO11n engine initialized successfully" << std::endl;
         std::cout << "Input size: " << m_inputWidth << "x" << m_inputHeight << std::endl;
 
         return 0;
@@ -357,7 +389,7 @@ int YoloDetector::initialize() {
 
 
 int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    //std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_engine) {
         std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
         return -1;
@@ -366,7 +398,13 @@ int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
     for (auto& frameInfo : frameInfos)
     {
         int batchSize = 1;
-        frameInfo.netInputs = allocHostMemory(m_inputShapes, 1, false);
+        //frameInfo.netHostInputs = allocHostMemory(m_inputShapes, 1, false);
+        //frameInfo.netDeviceInputs = allocDeviceMemory(m_inputShapes, 1, false);
+        allocHostMemory(frameInfo, true, m_inputShapes, 1, false);
+        //freeHostMemory(frameInfo.netHostOutputs);
+        //frameInfo.netHostOutputs = allocHostMemory(m_outputShapes, 1, false);
+        allocHostMemory(frameInfo, false, m_outputShapes, 1, false);
+
         // Shape is [n, c, h, w]
         int inputW = m_inputShapes[0].dims[3];
         int inputH = m_inputShapes[0].dims[2];
@@ -408,7 +446,7 @@ int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
                 // Convert HWC to CHW format and copy to input buffer
                 int planeSize = input.cols * input.rows;
                 // 使用当前缓冲区而不是nextBuffer
-                auto* begin = static_cast<float*>((void*)((char*)frameInfo.netInputs[shapeIdx] + m_inputShapes[shapeIdx].mem_size * i));
+                auto* begin = static_cast<float*>((void*)((char*)frameInfo.netHostInputs[shapeIdx] + m_inputShapes[shapeIdx].mem_size * i));
                 cv::Mat b(cv::Size(input.cols, input.rows), CV_32FC1, begin);
                 cv::Mat g(cv::Size(input.cols, input.rows), CV_32FC1, begin + planeSize);
                 cv::Mat r(cv::Size(input.cols, input.rows), CV_32FC1, begin + (planeSize << 1));
@@ -416,13 +454,15 @@ int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
                 cv::split(input, rgb);
             }
         }
+
+        syncInputs(frameInfo);
     }
 
     return 0;
 }
 
 int YoloDetector::forward(std::vector<FrameInfo>& frameInfos) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    //std::lock_guard<std::mutex> lock(m_mutex);
 
     if (!m_engine) {
         std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
@@ -431,15 +471,12 @@ int YoloDetector::forward(std::vector<FrameInfo>& frameInfos) {
 
    for (auto& frameInfo : frameInfos)
    {
-       freeHostMemory(frameInfo.netOutputs);
-       frameInfo.netOutputs = allocHostMemory(m_outputShapes, 1, false);
-
        // Run inference using runWithBatch (following yolov5_ref.cpp pattern)
        auto success = m_engine->runWithBatch(
            1,
-           frameInfo.netInputs.data(),
-           frameInfo.netOutputs.data(),
-           TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+           frameInfo.netDeviceInputs.data(),
+           frameInfo.netDeviceOutputs.data(),
+           TopsInference::BufferType::TIF_ENGINE_RSC_IN_DEVICE_OUT_DEVICE);
 
        if (!success) {
            std::cerr << "engine runWithBatch failed." << std::endl;
@@ -456,7 +493,8 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
 
     for (auto& frameInfo : frameInfos)
     {
-        if (frameInfo.netOutputs.empty()) {
+        syncOutputs(frameInfo);
+        if (frameInfo.netHostOutputs.empty()) {
             std::cerr << "No output data available" << std::endl;
             return -1;
         }
@@ -474,7 +512,7 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
 
         // 检查输出索引是否有效
         int outputShapeIdx = 0; // yolov5-v6.2 has only one output shape
-        if (outputShapeIdx >= m_outputShapes.size() || outputShapeIdx >= frameInfo.netOutputs.size()) {
+        if (outputShapeIdx >= m_outputShapes.size() || outputShapeIdx >= frameInfo.netHostOutputs.size()) {
             std::cerr << "Invalid output shape index" << std::endl;
             return -1;
         }
@@ -503,7 +541,7 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
 
             // 计算安全的内存偏移量，确保不会越界
             size_t safeOffset = std::min(batchIdx * singleOutputSize, maxElements - singleOutputSize);
-            float* output1 = (float*)frameInfo.netOutputs[outputShapeIdx] + safeOffset;
+            float* output1 = (float*)frameInfo.netHostOutputs[outputShapeIdx] + safeOffset;
 
             std::vector<cv::Rect> selected_boxes;
             std::vector<float> confidence;
@@ -600,7 +638,7 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
                 //          << result_box.width << "," << result_box.height << ")" << std::endl;
             }
 
-            //std::cout << "Frame " << batchIdx << ": Detected " << frameInfo.bboxes.size() << " objects" << std::endl;
+            //std::cout << "Frame " << batchIdx << ": Detected " << frameInfo.detection.size() << " objects" << std::endl;
         }
     }
 
@@ -614,8 +652,8 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
             m_nextInferPipe->push_frame(&frameInfo);
         } else {
             //Free input/output
-            freeHostMemory(frameInfo.netInputs);
-            freeHostMemory(frameInfo.netOutputs);
+            freeHostMemory(frameInfo, true);
+            freeHostMemory(frameInfo, false);
 
             // Stop pipeline
             av_packet_unref(frameInfo.pkt);
@@ -644,8 +682,8 @@ void YoloDetector::cleanup() {
 }
 
 
-std::shared_ptr<Detector> Detector::createDetector(int devId) {
+std::shared_ptr<Detector> Detector::createDetector(int devId, std::string modelPath) {
     std::shared_ptr<Detector> detector;
-    detector.reset(new YoloDetector(devId));
+    detector.reset(new YoloDetector(devId, modelPath));
     return detector;
 }

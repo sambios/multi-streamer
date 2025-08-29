@@ -23,8 +23,12 @@ struct FrameInfo
     AVPacket *pkt;
     AVFrame *frame;
     std::shared_ptr<Streamer> streamer;
-    std::vector<void*> netInputs;
-    std::vector<void*> netOutputs;
+    std::vector<void*> netHostInputs;
+    std::vector<void*> netDeviceInputs;
+    std::vector<void*> netHostOutputs;
+    std::vector<void*> netDeviceOutputs;
+    std::vector<int> netOutputsSize;
+    std::vector<int> netInputsSize;
     otl::Detection detection;
 };
 
@@ -35,7 +39,7 @@ struct FrameInfo
 class Detector : public otl::DetectorDelegate<FrameInfo>
 {
 public:
-    static std::shared_ptr<Detector> createDetector(int devId);
+    static std::shared_ptr<Detector> createDetector(int devId, std::string modelPath);
     virtual ~Detector(){}
 };
 

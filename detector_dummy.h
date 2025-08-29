@@ -10,7 +10,7 @@
 class DummyDetector : public Detector
 {
 public:
-    DummyDetector(int devId = 0);
+    DummyDetector(int devId = 0, std::string modelPath = "");
     virtual ~DummyDetector();
 public:
     int initialize() override;

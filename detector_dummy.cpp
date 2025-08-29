@@ -5,7 +5,7 @@
 #include "detector_dummy.h"
 #include "otl_ffmpeg.h"
 
-    DummyDetector::DummyDetector(int devId) {
+    DummyDetector::DummyDetector(int devId, std::string modelPath) {
 
         std::cout << "DummyDetector ctor" << std::endl;
 
@@ -64,8 +64,8 @@
     }
 
 
-std::shared_ptr<Detector> Detector::createDetector(int devId) {
+std::shared_ptr<Detector> Detector::createDetector(int devId, std::string modelPath) {
     std::shared_ptr<Detector> detector;
-    detector.reset(new DummyDetector(devId));
+    detector.reset(new DummyDetector(devId, modelPath));
     return detector;
 }

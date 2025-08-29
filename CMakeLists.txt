@@ -4,11 +4,14 @@ project(video_detection)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(USE_DUMMY_DETECTOR "Use dummy detector" ON)
+option(USE_DUMMY_DETECTOR "Use dummy detector" OFF)
 option(USE_HW_CODEC "use hardware accelerator" ON)
-option(USE_TOPS_FFMPEG "use Tops ffmpeg" OFF)
+option(USE_TOPS_FFMPEG "use Tops ffmpeg" ON)
+option(USE_YOLOV5S "Use Yolov5" OFF)
+option(USE_YOLO11N "Use Yolo11n" ON)
 
 #set(CMAKE_CXX_FLAGS -fsanitize=address ${CMAKE_CXX_FLAGS})
+#add_subdirectory(../otl otl.dir)
 
 # Find required packages
 set(CMAKE_PREFIX_PATH $ENV{HOME}/buildroot ${CMAKE_PREFIX_PATH})
@@ -27,6 +30,10 @@ if (NOT USE_DUMMY_DETECTOR)
     find_library(TOPSINFERENCE_LIBRARY TopsInference
             PATHS /lib /opt/tops/lib $ENV{HOME}/enrigin_sdk/usr/lib
             DOC "TopsInference library")
+
+    find_library(TOPSRT_LIBRARY topsrt
+            PATHS /opt/tops/lib $ENV{HOME}/enrigin_sdk/usr/lib
+            DOC "TopsRT library")
 endif()
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
@@ -80,10 +87,17 @@ link_directories(${FFMPEG_LINK_DIRS})
 
 if (USE_DUMMY_DETECTOR)
     set(DETECTOR_SRCS detector_dummy.cpp)
-else()
-    set(DETECTOR_SRCS detector_yolo.cpp)
+endif ()
+
+if (USE_YOLOV5S)
+    set(DETECTOR_SRCS detector_yolov5.cpp)
 endif()
 
+if (USE_YOLO11N)
+    set(DETECTOR_SRCS detector_yolo11n.cpp)
+endif()
+
+message(STATUS "DETECTOR_SRC=${DETECTOR_SRCS}")
 # Add source files
 add_executable(${PROJECT_NAME}
         main.cpp
@@ -109,18 +123,8 @@ target_link_libraries(${PROJECT_NAME}
         PRIVATE
         otl
         ${TOPSINFERENCE_LIBRARY}
+        topsrt
         ${OpenCV_LIBS}
         ${FFMPEG_LINK_LIBS}
         pthread
-)
-
-# Enable C++17 features
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
-
-# Set output directory
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-# Add install target
-install(TARGETS ${PROJECT_NAME}
-        RUNTIME DESTINATION bin
 )

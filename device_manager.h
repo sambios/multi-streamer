@@ -18,8 +18,8 @@ public:
     DeviceManager();
     virtual ~DeviceManager();
 
-    DetectorPtr getDetector(int devId);
-    std::shared_ptr<otl::InferencePipe<FrameInfo>> getInferPipe(int devId);
+    DetectorPtr getDetector(int devId, std::string modelPath);
+    std::shared_ptr<otl::InferencePipe<FrameInfo>> getInferPipe(int devId, std::string modelPath);
 };
 
 using DeviceManagerPtr = std::shared_ptr<DeviceManager>;
