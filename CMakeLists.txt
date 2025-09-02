@@ -5,10 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(USE_DUMMY_DETECTOR "Use dummy detector" OFF)
+option(USE_YOLOV5_DETECTOR "Use YOLOV5" OFF)
+option(USE_YOLO11N_DETECTOR "Use Yolo11n" ON)
+
 option(USE_HW_CODEC "use hardware accelerator" ON)
 option(USE_TOPS_FFMPEG "use Tops ffmpeg" ON)
-option(USE_YOLOV5S "Use Yolov5" OFF)
-option(USE_YOLO11N "Use Yolo11n" ON)
+
 
 #set(CMAKE_CXX_FLAGS -fsanitize=address ${CMAKE_CXX_FLAGS})
 #add_subdirectory(../otl otl.dir)
@@ -89,11 +91,11 @@ if (USE_DUMMY_DETECTOR)
     set(DETECTOR_SRCS detector_dummy.cpp)
 endif ()
 
-if (USE_YOLOV5S)
+if (USE_YOLOV5S_DETECTOR)
     set(DETECTOR_SRCS detector_yolov5.cpp)
 endif()
 
-if (USE_YOLO11N)
+if (USE_YOLO11N_DETECTOR)
     set(DETECTOR_SRCS detector_yolo11n.cpp)
 endif()
 

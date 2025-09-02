@@ -57,6 +57,8 @@ int main(int argc, char* argv[]) {
     int card_nums = configsJson["dev_num"].get<int>();
     bool detect_enabled = configsJson["detect_enabled"].get<bool>();
     std::string model_path = otl::replaceHomeDirectory(configsJson["model_path"].get<std::string>());
+    std::string pp_str = configsJson["ppset_info"].get<std::string>();
+    bool ppset_enabled = configsJson["ppset_enabled"].get<bool>();
 
     for (int devId = 0; devId < card_nums; ++devId) {
 
@@ -109,6 +111,8 @@ int main(int argc, char* argv[]) {
                 config.detectEnabled = detect_enabled;
                 config.encodeEnabled = false;
                 config.modelPath = model_path;
+                config.pp_str = pp_str;
+                config.ppset_enabled = ppset_enabled;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);
@@ -146,9 +150,14 @@ int main(int argc, char* argv[]) {
         for (auto strm : streamers) {
             auto stats = strm->getStats();
             total += stats.fps;
+            auto stat = strm->getPipeStatus();
+            OTL_LOGI("video_detection", "%d:(%d/%d %.2f, %d/%d %.2f, %d/%d %.2f)", strm->getChannelId(),
+                stat.preprocess_queue_current, stat.preprocess_queue_size, stat.preprocess_fps,
+                stat.forward_queue_current, stat.forward_queue_size, stat.forward_fps,
+                stat.postprocess_queue_current, stat.postprocess_queue_size, stat.postprocess_fps);
         }
 
-        std::cout << otl::formatString("ch-num=%d FPS=%.2f\n", streamers.size(), total);
+        std::cout << otl::formatString("total:ch-num=%d FPS=%.2f\n", streamers.size(), total);
         std::cout.flush();
     }, -1, &timerId);
 

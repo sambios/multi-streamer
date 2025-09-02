@@ -31,6 +31,8 @@ public:
         bool detectEnabled;
         bool encodeEnabled;
         std::string modelPath;
+        bool ppset_enabled;
+        std::string pp_str;
     };
 
     otl::StatToolPtr m_fpsStat;
@@ -52,6 +54,7 @@ public:
     void stop();
     bool isRunning() const { return m_running; }
     Stats getStats();
+    otl::PipeStatus getPipeStatus();
 
     inline std::shared_ptr<Streamer> get_shared_ptr() {
         // 通过 shared_from_this() 生成指向自身的 shared_ptr

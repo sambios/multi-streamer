@@ -34,6 +34,60 @@ static void draw_rect_y(uint8_t* y, int w, int h, int linesize, int x1, int y1, 
         }
     }
 }
+// 将YUV420P格式的AVFrame转换为cv::Mat并保存为JPG
+static bool avframeToMatAndSave(AVFrame* frame, const std::string& outputPath) {
+    if (!frame || frame->format != AV_PIX_FMT_YUV420P) {
+        std::cerr << "无效的AVFrame或不是YUV420P格式" << std::endl;
+        return false;
+    }
+
+    // 获取视频帧的宽度和高度
+    int width = frame->width;
+    int height = frame->height;
+
+    // 创建SWS上下文用于格式转换
+    SwsContext* swsCtx = sws_getContext(
+        width, height, AV_PIX_FMT_YUV420P,  // 源格式
+        width, height, AV_PIX_FMT_BGR24,    // 目标格式(BGR用于OpenCV)
+        SWS_BILINEAR,                       // 缩放算法
+        nullptr, nullptr, nullptr
+    );
+
+    if (!swsCtx) {
+        std::cerr << "无法创建SWS上下文" << std::endl;
+        return false;
+    }
+
+    // 创建OpenCV矩阵用于存储转换后的图像
+    cv::Mat mat(height, width, CV_8UC3);
+
+    // 设置目标图像的数据指针
+    uint8_t* destData[1] = { mat.data };  // BGR格式数据
+    int destLinesize[1] = { static_cast<int>(mat.step) };  // 每行字节数
+
+    // 执行格式转换
+    sws_scale(
+        swsCtx,
+        frame->data,     // 源数据
+        frame->linesize, // 源每行字节数
+        0,
+        height,
+        destData,        // 目标数据
+        destLinesize     // 目标每行字节数
+    );
+
+    // 释放SWS上下文
+    sws_freeContext(swsCtx);
+
+    // 保存为JPG
+    if (!cv::imwrite(outputPath, mat)) {
+        std::cerr << "无法保存图片到 " << outputPath << std::endl;
+        return false;
+    }
+
+    std::cout << "图片已成功保存到 " << outputPath << std::endl;
+    return true;
+}
 
 Streamer::Streamer(DeviceManagerPtr ptr) {
     m_fpsStat = otl::StatTool::create(5);
@@ -94,7 +148,12 @@ bool Streamer::start() {
 
     AVDictionary *opts=NULL;
     //av_dict_set(&opts, "vf", "scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2,format=rgb24", 0);
-    av_dict_set(&opts, "pp_set", "1920x1080:0:0:3840x2160", 0);
+    if (m_config.ppset_enabled)
+    {
+        av_dict_set(&opts, "pp_set", m_config.pp_str.c_str(), 0);
+        av_dict_set(&opts, "pix_fmt", "bgr24", 0);
+    }
+
     if (m_decoder->openStream(m_config.inputUrl, true,  opts) != 0) {
         std::cout << "OpenStream " << m_config.inputUrl << " failed!" << std::endl;
         return false;
@@ -126,6 +185,43 @@ bool Streamer::start() {
     {
         if (frameInfo.streamer && frameInfo.streamer->m_output)
         {
+            if (frameInfo.frame && false)
+            {
+                if ( (frameInfo.frame->format == AV_PIX_FMT_YUV420P || frameInfo.frame->format == AV_PIX_FMT_YUVJ420P) &&
+                    !frameInfo.detection.bboxes().empty()) {
+                    uint8_t* y = frameInfo.frame->data[0];
+                    int ls = frameInfo.frame->linesize[0];
+                    int W = frameInfo.frame->width;
+                    int H = frameInfo.frame->height;
+                    for (const otl::Bbox& b : frameInfo.detection.bboxes()) {
+                        // If coords look normalized (<=1), scale to pixels
+                        auto norm = (b.x2 <= 1.0f && b.y2 <= 1.0f);
+                        int x1 = norm ? (int)(b.x1 * W) : (int)b.x1;
+                        int y1 = norm ? (int)(b.y1 * H) : (int)b.y1;
+                        int x2 = norm ? (int)(b.x2 * W) : (int)b.x2;
+                        int y2 = norm ? (int)(b.y2 * H) : (int)b.y2;
+                        draw_rect_y(y, W, H, ls, x1, y1, x2, y2, 2, 235);
+                    }
+                    avframeToMatAndSave(frameInfo.frame, "output.jpg");
+                }else if (frameInfo.frame->format == AV_PIX_FMT_BGR24)
+                {
+                    cv::Mat img(frameInfo.frame->height, frameInfo.frame->width, CV_8UC3, frameInfo.frame->data[0]);
+                    int W = frameInfo.frame->width;
+                    int H = frameInfo.frame->height;
+                    for (const otl::Bbox& b : frameInfo.detection.bboxes()) {
+                       // If coords look normalized (<=1), scale to pixels
+                       auto norm = (b.x2 <= 1.0f && b.y2 <= 1.0f);
+                       int x1 = norm ? (int)(b.x1 * W) : (int)b.x1;
+                       int y1 = norm ? (int)(b.y1 * H) : (int)b.y1;
+                       int x2 = norm ? (int)(b.x2 * W) : (int)b.x2;
+                       int y2 = norm ? (int)(b.y2 * H) : (int)b.y2;
+
+                       cv::rectangle(img, cv::Rect(x1, y1, x2-x1, y2-y1), cv::Scalar(0, 255,0), 2);
+                    }
+                    cv::imwrite("output.jpg", img);
+                }
+
+            }
             if (frameInfo.streamer->m_config.encodeEnabled) {
                 // 1) Overlay detection bboxes on Y plane (YUV420P/YUVJ420P) before encoding
                 if (frameInfo.frame &&
@@ -265,6 +361,13 @@ Streamer::Stats Streamer::getStats() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_stats.fps = m_fpsStat->getSpeed();
     return m_stats;
+}
+
+otl::PipeStatus Streamer::getPipeStatus()
+{
+    otl::PipeStatus stat;
+    m_inferPipe->statis(&stat);
+    return stat;
 }
 
 void Streamer::onDecodedAVFrame(const AVPacket* pkt, const AVFrame* pFrame) {

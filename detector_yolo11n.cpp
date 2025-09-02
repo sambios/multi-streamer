@@ -16,6 +16,9 @@
 #include "otl.h"
 #include "otl_ffmpeg.h"
 #define TOPS_CHECK(func) {auto ret = func; assert(topsSuccess == ret);}
+
+thread_local bool isDeviceSetted = false;
+
 // COCO class labels mapping (from yolov5_ref.cpp)
 std::map<int, std::string> label_map = {
     {0, "person"},         {1, "bicycle"},       {2, "car"},
@@ -247,19 +250,35 @@ void YoloDetector::freeHostMemory(FrameInfo &info, bool isInput) {
 }
 
 int YoloDetector::initialize() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_engine != nullptr) return 0;
-    try {
-        // Initialize TopsInference
-        TopsInference::topsInference_init();
 
-        // Set device
+    // Initialize TopsInference
+    TopsInference::topsInference_init();
+
+    // Set device
+    if (!isDeviceSetted)
+    {
         std::vector<uint32_t> cluster_ids = {0};
         m_handler = TopsInference::set_device(m_deviceId, cluster_ids.data(), cluster_ids.size());
         if (!m_handler) {
             std::cerr << "threadid=" << std::this_thread::get_id() << ", Failed to set device " << m_deviceId << std::endl;
             return -1;
         }
+        isDeviceSetted = true;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_engine != nullptr) return 0;
+    try {
+        // Initialize TopsInference
+        //TopsInference::topsInference_init();
+
+        // Set device
+        //std::vector<uint32_t> cluster_ids = {0};
+        //m_handler = TopsInference::set_device(m_deviceId, cluster_ids.data(), cluster_ids.size());
+        //if (!m_handler) {
+        //    std::cerr << "threadid=" << std::this_thread::get_id() << ", Failed to set device " << m_deviceId << std::endl;
+        //    return -1;
+        //}
 
         // Generate .exec file path from ONNX model path
         fs::path onnxPath(m_modelPath);
@@ -390,7 +409,7 @@ int YoloDetector::initialize() {
 
 int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
     //std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_engine) {
+    if (!m_engine || m_inputShapes.empty()) {
         std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
         return -1;
     }
@@ -421,9 +440,16 @@ int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
                     int width = frame->width;
                     int height = frame->height;
 
-                    // Create cv::Mat from YUV420P data
-                    cv::Mat yuv(height + height / 2, width, CV_8UC1, frame->data[0], frame->linesize[0]);
-                    cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_I420);
+                    if (frame->format == AV_PIX_FMT_YUV420P)
+                    {
+                        // Create cv::Mat from YUV420P data
+                        cv::Mat yuv(height + height / 2, width, CV_8UC1, frame->data[0], frame->linesize[0]);
+                        cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_I420);
+                    }else if (frame->format == AV_PIX_FMT_BGR24)
+                    {
+                        cv::Mat bgr24(height, width, CV_8UC3, frame->data[0]);
+                        image = bgr24;
+                    }
                 }
                 else
                 {
@@ -464,7 +490,7 @@ int YoloDetector::preprocess(std::vector<FrameInfo>& frameInfos) {
 int YoloDetector::forward(std::vector<FrameInfo>& frameInfos) {
     //std::lock_guard<std::mutex> lock(m_mutex);
 
-    if (!m_engine) {
+    if (!m_engine && m_inputShapes.empty()) {
         std::cerr << "Engine(dev=" << m_deviceId << ") not initialized" << std::endl;
         return -1;
     }
@@ -499,146 +525,85 @@ int YoloDetector::postprocess(std::vector<FrameInfo>& frameInfos) {
             return -1;
         }
 
-        const int batchSize = 1;
         // Shape is [n, c, h, w]
         int inputW = m_inputShapes[0].dims[3];
         int inputH = m_inputShapes[0].dims[2];
 
-        // 检查是否有足够的输出形状信息
-        if (m_outputShapes.empty()) {
-            std::cerr << "Output shapes not initialized" << std::endl;
-            return -1;
-        }
+        for (int bactchIdx = 0; bactchIdx < 1; ++bactchIdx)
+        {
+            // OutputData is column-major, [[batch1_output1, batch2_output1,...],[batch1_output2, batch2_output2,...]...]
+            int outputShapeIdx = 0; // yolov8m has only one output shape.
+            //[1,84,8400]
+            float* output1 = (float*)frameInfo.netHostOutputs[outputShapeIdx] + m_outputShapes[outputShapeIdx].volume * bactchIdx;
 
-        // 检查输出索引是否有效
-        int outputShapeIdx = 0; // yolov5-v6.2 has only one output shape
-        if (outputShapeIdx >= m_outputShapes.size() || outputShapeIdx >= frameInfo.netHostOutputs.size()) {
-            std::cerr << "Invalid output shape index" << std::endl;
-            return -1;
-        }
+            int output_h = m_outputShapes[outputShapeIdx].dims[1];
+            int output_w = m_outputShapes[outputShapeIdx].dims[2];
+            int maxLen = MAX(frameInfo.frame->width, frameInfo.frame->height);
+            float x_factor, y_factor;
+            x_factor = y_factor = maxLen / static_cast<float>(inputW);
 
-        for (int batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
-            // 边界检查，确保不越界
-            if (batchIdx >= batchSize) {
-                std::cerr << "Batch index " << batchIdx << " exceeds batch size " << batchSize << std::endl;
-                continue;
-            }
+            cv::Mat dout(output_h, output_w, CV_32F, (float*)output1);
+            cv::Mat det_output = dout.t(); // 8400x84
 
-            // Clear previous detections
-            frameInfo.detection.clear();
+            std::vector<cv::Rect> boxes;
+            std::vector<int> classIds;
+            std::vector<float> confidences;
 
-            // 计算单个样本输出所需的内存大小
-            size_t singleOutputSize = m_outputShapes[outputShapeIdx].volume;
+            for (int i = 0; i < det_output.rows; i++)
+            {
+                cv::Mat classes_scores = det_output.row(i).colRange(4, 84);
+                cv::Point classIdPoint;
+                double score;
+                cv::minMaxLoc(classes_scores, 0, &score, 0, &classIdPoint);
 
-            // 检查内存越界
-            size_t maxElements = m_outputShapes[outputShapeIdx].mem_size / sizeof(float);
-            if (batchIdx * singleOutputSize + singleOutputSize > maxElements) {
-                std::cerr << "Memory access out of bounds: batchIdx=" << batchIdx
-                         << ", volume=" << singleOutputSize
-                         << ", max=" << maxElements << std::endl;
-                continue;
-            }
+                // 置信度 0～1之间
+                if (score > m_confThreshold)
+                {
+                    float cx = det_output.at<float>(i, 0);
+                    float cy = det_output.at<float>(i, 1);
+                    float ow = det_output.at<float>(i, 2);
+                    float oh = det_output.at<float>(i, 3);
+                    int x = static_cast<int>((cx - 0.5 * ow) * x_factor);
+                    int y = static_cast<int>((cy - 0.5 * oh) * y_factor);
+                    int width = static_cast<int>(ow * x_factor);
+                    int height = static_cast<int>(oh * y_factor);
+                    cv::Rect box;
+                    box.x = x;
+                    box.y = y;
+                    box.width = width;
+                    box.height = height;
 
-            // 计算安全的内存偏移量，确保不会越界
-            size_t safeOffset = std::min(batchIdx * singleOutputSize, maxElements - singleOutputSize);
-            float* output1 = (float*)frameInfo.netHostOutputs[outputShapeIdx] + safeOffset;
-
-            std::vector<cv::Rect> selected_boxes;
-            std::vector<float> confidence;
-            std::vector<int> class_id;
-
-            // YOLOv5 output format: [1, 25200, 85] where 85 = 4(bbox) + 1(conf) + 80(classes)
-            int num_detections = m_outputShapes[outputShapeIdx].dims[1]; // 25200
-            int detection_size = m_outputShapes[outputShapeIdx].dims[2]; // 85
-            int num_classes = detection_size - 5;
-
-            for (int i = 0; i < num_detections; ++i) {
-                float* detection = output1 + i * detection_size;
-
-                // Extract bbox coordinates and confidence
-                float center_x = detection[0];
-                float center_y = detection[1];
-                float width = detection[2];
-                float height = detection[3];
-                float objectness = detection[4];
-
-                // Skip low confidence detections
-                if (objectness < m_confThreshold) continue;
-
-                // Find best class
-                float max_class_score = 0.0f;
-                int best_class_id = 0;
-                for (int c = 0; c < num_classes; ++c) {
-                    float class_score = detection[5 + c];
-                    if (class_score > max_class_score) {
-                        max_class_score = class_score;
-                        best_class_id = c;
-                    }
+                    boxes.push_back(box);
+                    classIds.push_back(classIdPoint.x);
+                    confidences.push_back(score);
                 }
-
-                float final_score = objectness * max_class_score;
-                if (final_score < m_confThreshold) continue;
-
-                // Convert center format to corner format
-                int x = static_cast<int>(center_x - width / 2);
-                int y = static_cast<int>(center_y - height / 2);
-                int w = static_cast<int>(width);
-                int h = static_cast<int>(height);
-
-                selected_boxes.push_back(cv::Rect(x, y, w, h));
-                confidence.push_back(final_score);
-                class_id.push_back(best_class_id);
             }
 
-            // No object detected
-            if (selected_boxes.size() == 0) {
-                //std::cout << "no bbox over score threshold detected." << std::endl;
-                continue;
-            }
-
-            // Apply NMS using reference implementation
+            // NMS
             std::vector<int> indexes;
-            nonMaximumSuppression(selected_boxes, confidence, m_nmsThreshold, indexes);
+            cv::dnn::NMSBoxes(boxes, confidences, m_nmsThreshold, m_confThreshold, indexes);
 
-            // Convert detections to Bbox format and scale coordinates
-            for (int id : indexes) {
-                auto result_box = selected_boxes[id];
+            //printf("detect num: %d\n", (int)indexes.size());
+            for (size_t i = 0; i < indexes.size(); i++)
+            {
+                int index = indexes[i];
+                int cls_id = classIds[index];
+                otl::Bbox bbox;
+                bbox.x1 = boxes[index].x;
+                bbox.y1 = boxes[index].y;
+                bbox.x2 = bbox.x1 + boxes[index].width;
+                bbox.y2 = bbox.y1 + boxes[index].height;
+                bbox.classId = cls_id;
 
-                // Scale coordinates back to original image dimensions
-                int originalWidth = frameInfo.frame->width;
-                int originalHeight = frameInfo.frame->height;
-
-                // Calculate scale factors (letterbox preprocessing)
-                int maxLen = std::max(originalWidth, originalHeight);
-                float scale = static_cast<float>(maxLen) / inputW;
-
-                result_box.x = static_cast<int>(result_box.x * scale);
-                result_box.y = static_cast<int>(result_box.y * scale);
-                result_box.width = static_cast<int>(result_box.width * scale);
-                result_box.height = static_cast<int>(result_box.height * scale);
-
-                // Clamp to image boundaries
-                result_box.x = std::max(0, std::min(result_box.x, originalWidth));
-                result_box.y = std::max(0, std::min(result_box.y, originalHeight));
-                result_box.width = std::max(0, std::min(result_box.width, originalWidth - result_box.x));
-                result_box.height = std::max(0, std::min(result_box.height, originalHeight - result_box.y));
-
-                otl::Bbox det_bbox;
-                det_bbox.x1 = result_box.x;
-                det_bbox.y1 = result_box.y;
-                det_bbox.x2 = result_box.x + result_box.width;
-                det_bbox.y2 = result_box.y + result_box.height;
-                det_bbox.confidence = confidence[id];
-                det_bbox.classId = class_id[id];
-                frameInfo.detection.push_back(det_bbox);
-
-                //std::string label = label_map[det_bbox.classId];
-                //std::cout << "cls: " << label << " conf: " << det_bbox.confidence
-                //          << " (" << result_box.x << "," << result_box.y << ","
-                //          << result_box.width << "," << result_box.height << ")" << std::endl;
+                //detection.label = label_map[cls_id];
+                bbox.confidence = confidences[index];
+                //printf("box[%d, %d, %d, %d], conf:%f, cls:%d\n", boxes[index].x, boxes[index].y, boxes[index].width, boxes[index].height, confidences[index], cls_id);
+                frameInfo.detection.push_back(bbox);
             }
 
-            //std::cout << "Frame " << batchIdx << ": Detected " << frameInfo.detection.size() << " objects" << std::endl;
+            // for debug
+            //std::cout << "size of result: " << dets.size() << std::endl;
+
         }
     }
 

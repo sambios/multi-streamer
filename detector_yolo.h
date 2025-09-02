@@ -60,6 +60,7 @@ private:
     // 互斥锁用于多线程同步
     std::mutex m_mutex;
 
+
     std::vector<ShapeInfo> getInputsShape();
     std::vector<ShapeInfo> getOutputsShape();
     void allocHostMemory(FrameInfo &info, bool isInput, std::vector<ShapeInfo> &shapes_info, int times, bool verbose);
