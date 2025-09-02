@@ -181,8 +181,18 @@ bool Streamer::start() {
 
 
     //------- Delegate callback --------//
-    m_detector->set_detected_callback([](FrameInfo& frameInfo)
+    m_detector->set_detected_callback([this](FrameInfo& frameInfo)
     {
+        if (m_config.ppset_enabled)
+        {
+            for (otl::Bbox& b : frameInfo.detection.bboxes()) {
+                b.x1 = b.x1 / m_config.pp_scale;
+                b.y1 = b.y1 / m_config.pp_scale;
+                b.x2 = b.x2 / m_config.pp_scale;
+                b.y2 = b.y2 / m_config.pp_scale;
+            }
+        }
+
         if (frameInfo.streamer && frameInfo.streamer->m_output)
         {
             if (frameInfo.frame && false)

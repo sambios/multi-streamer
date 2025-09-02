@@ -3,6 +3,7 @@
   "detect_enabled" : true,
   "model_path": "~/clients/main/models/yolo11n.onnx",
   "ppset_enabled": true,
+  "pp_scale": 0.3333333,
   "ppset_info-1": "1920x1080:0:0:0:3840x2160",
   "ppset_info": "640x360:0:0:0:1920x1080",
   "configs_dev0": [

@@ -59,6 +59,7 @@ int main(int argc, char* argv[]) {
     std::string model_path = otl::replaceHomeDirectory(configsJson["model_path"].get<std::string>());
     std::string pp_str = configsJson["ppset_info"].get<std::string>();
     bool ppset_enabled = configsJson["ppset_enabled"].get<bool>();
+    float pp_scale = configsJson["pp_scale"].get<float>();
 
     for (int devId = 0; devId < card_nums; ++devId) {
 
@@ -113,6 +114,7 @@ int main(int argc, char* argv[]) {
                 config.modelPath = model_path;
                 config.pp_str = pp_str;
                 config.ppset_enabled = ppset_enabled;
+                config.pp_scale = pp_scale;
                 
                 // 生成递增的输出URL
                 config.outputUrl = protocol + baseIp + ":" + std::to_string(basePort + i);

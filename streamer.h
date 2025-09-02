@@ -33,6 +33,7 @@ public:
         std::string modelPath;
         bool ppset_enabled;
         std::string pp_str;
+        float pp_scale;
     };
 
     otl::StatToolPtr m_fpsStat;
